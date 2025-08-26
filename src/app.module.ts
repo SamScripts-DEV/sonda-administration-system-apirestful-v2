@@ -1,0 +1,20 @@
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { UsersModule } from './modules/users/users.module';
+import { TowersModule } from './modules/towers/towers.module';
+import { DepartmentsModule } from './modules/departments/departments.module';
+import { PositionsModule } from './modules/positions/positions.module';
+import { RolesModule } from './modules/roles/roles.module';
+import { PermissionsModule } from './modules/permissions/permissions.module';
+import { TokensModule } from './modules/tokens/tokens.module';
+import { PrismaModule } from './prisma/prisma.module';
+import { HolidayModule } from './modules/holiday/holiday.module';
+import { VacationsModule } from './modules/vacations/vacations.module';
+
+@Module({
+  imports: [UsersModule, TowersModule, DepartmentsModule, PositionsModule, RolesModule, PermissionsModule, TokensModule, PrismaModule, HolidayModule, VacationsModule],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}

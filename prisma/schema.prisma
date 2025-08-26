@@ -1,0 +1,215 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Department {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+  users       User[]
+  @@map("department")
+}
+
+model Position {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+  users       User[]
+  @@map("position")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  scope       String    //"GLOBAL" o "LOCAL"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+  users       UserRole[]
+  permissions RolePermission[]
+  towerRoles  TowerRole[]
+  userRoleLocals UserRoleLocal[]
+  @@map("role")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+  roles       RolePermission[]
+  @@map("permission")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  @@id([roleId, permissionId])
+  @@map("role_permission")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  firstName    String
+  lastName     String
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  phone        String
+  active       Boolean  @default(true)
+  nationalId   String  @unique
+  imageUrl     String?
+  address      String?
+  city         String?
+  country      String?
+  departmentId String
+  positionId   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now())
+  lastLogin    DateTime?
+  department   Department @relation(fields: [departmentId], references: [id])
+  position     Position?  @relation(fields: [positionId], references: [id])
+  towers       UserTower[]
+  roles        UserRole[]
+  roles_local  UserRoleLocal[]
+  tokens       Token[]
+  vacationRequests VacationRequest[] @relation("VacationUser")
+  createdVacationRequests VacationRequest[] @relation("VacationCreatedBy")
+  vacationBalances VacationBalance[]
+  vacationActions VacationActionLog[] @relation("VacationActionBy")
+  @@map("users")
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  @@id([userId, roleId])
+  @@map("user_role")
+}
+
+model UserRoleLocal {
+  id      String @id @default(uuid())
+  userId  String
+  towerId String
+  roleId  String // Solo roles con scope "LOCAL"
+  user    User   @relation(fields: [userId], references: [id])
+  tower   Tower  @relation(fields: [towerId], references: [id])
+  role    Role   @relation(fields: [roleId], references: [id])
+  @@map("user_role_local")
+}
+
+model Tower {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+  userTowers  UserTower[] 
+  towerRoles  TowerRole[] 
+  userRoleLocals UserRoleLocal[]
+  @@map("tower")
+}
+
+model UserTower {
+  id        String @id @default(uuid())
+  userId    String
+  towerId   String
+  user      User   @relation(fields: [userId], references: [id])
+  tower     Tower  @relation(fields: [towerId], references: [id])
+  @@map("user_tower")
+}
+
+model Token {
+  id         String   @id @default(uuid())
+  userId     String
+  type       String
+  tokenHash  String
+  expiresAt  DateTime
+  used       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("token")
+}
+
+model Holiday {
+  id          String   @id @default(uuid())
+  name        String
+  startDate   DateTime
+  endDate     DateTime
+  observation String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+  @@map("holiday")
+}
+
+model VacationRequest {
+  id            String   @id @default(uuid())
+  userId        String
+  createdById   String
+  startDate     DateTime
+  endDate       DateTime
+  daysRequested Int
+  status        String   // "PENDING", "APPROVED", "REJECTED"
+  observation   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+  user          User     @relation("VacationUser", fields: [userId], references: [id])
+  createdBy     User     @relation("VacationCreatedBy", fields: [createdById], references: [id])
+  actions       VacationActionLog[]
+  @@map("vacation_request")
+}
+
+model VacationBalance {
+  id            String   @id @default(uuid())
+  userId        String
+  year          Int
+  daysAvailable Int
+  daysTaken     Int      @default(0)
+  daysOwed      Int      @default(0)
+  updatedAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id])
+  @@map("vacation_balance")
+}
+
+model VacationActionLog {
+  id                String   @id @default(uuid())
+  vacationRequestId String
+  action            String   // "APPROVED", "REJECTED"
+  actionById        String
+  actionAt          DateTime @default(now())
+  comment           String?
+  vacationRequest   VacationRequest @relation(fields: [vacationRequestId], references: [id])
+  actionBy          User     @relation("VacationActionBy", fields: [actionById], references: [id])
+  @@map("vacation_action_log")
+}
+
+model TowerRole {
+  id      String @id @default(uuid())
+  towerId String
+  roleId  String
+  tower   Tower @relation(fields: [towerId], references: [id])
+  role    Role  @relation(fields: [roleId], references: [id])
+  @@map("tower_role")
+}
