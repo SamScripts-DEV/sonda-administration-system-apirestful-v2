@@ -7,3 +7,18 @@ export interface Role {
 }
 
 export type RoleResponse = Omit<Role, 'createdAt' | 'updatedAt'>;
+
+
+export interface AssignableUser {
+    userId: string;
+    firstName: string;
+    lastName: string;
+    towerId: string; 
+    towerName: string;
+}
+
+export interface AssignableUsersByTower {
+    towerId: string;
+    towerName: string;
+    users: AssignableUser[];
+}

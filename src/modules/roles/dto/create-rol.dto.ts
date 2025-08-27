@@ -11,4 +11,9 @@ export class CreateRoleDto {
     @IsOptional()
     description?: string
 
+    @IsString()
+    scope: 'GLOBAL' | 'LOCAL'; 
+
+    towerIds?: string[]; 
+
 }

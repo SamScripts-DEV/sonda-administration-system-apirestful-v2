@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateRoleDto } from './dto/create-rol.dto';
-import { RoleResponse } from './types/roles-types';
+import { AssignableUser, AssignableUsersByTower, RoleResponse } from './types/roles-types';
 
 
 @Injectable()
@@ -34,47 +34,14 @@ export class RolesService {
     }
 
     //Function to get users assignable to a specific role
-    async getAssignableUsersForRole(roleId: string): Promise<any[]> {
+    async getAssignableUsersForRole(roleId: string): Promise<AssignableUser[] | AssignableUsersByTower[]> {
         const role = await this.prisma.role.findUnique({ where: { id: roleId } });
         if (!role) throw new NotFoundException('Role not found');
 
         if (role.scope === 'GLOBAL') {
-            // Usuarios que NO tienen el rol global
-            const userRoles = await this.prisma.userRole.findMany({ where: { roleId } });
-            const assignedUserIds = new Set(userRoles.map(ur => ur.userId));
-            const users = await this.prisma.user.findMany({
-                where: { id: { notIn: Array.from(assignedUserIds) } }
-            });
-            return users;
+            return await this.getAssignableGlobalUsers(roleId);
         } else if (role.scope === 'LOCAL') {
-            // Usuarios que pertenecen a torres donde el rol está disponible y NO tienen el rol local en esa torre
-            const towerRoles = await this.prisma.towerRole.findMany({ where: { roleId }, include: { tower: true } });
-            const result = [];
-            for (const tr of towerRoles) {
-                // Usuarios en la torre
-                const userTowers = await this.prisma.userTower.findMany({ where: { towerId: tr.towerId }, include: { user: true } });
-                // Usuarios que ya tienen el rol local en esa torre
-                const userRoleLocals = await this.prisma.userRoleLocal.findMany({ where: { towerId: tr.towerId, roleId } });
-                const assignedUserIds = new Set(userRoleLocals.map(ul => ul.userId));
-                // Filtra usuarios que aún no tienen el rol local en esa torre
-                const assignableUsers = userTowers
-                    .filter(ut => !assignedUserIds.has(ut.userId))
-                    .map(ut => ({
-                        userId: ut.user.id,
-                        firstName: ut.user.firstName,
-                        lastName: ut.user.lastName,
-                        towerId: tr.towerId,
-                        towerName: tr.tower.name
-                    }));
-                if (assignableUsers.length > 0) {
-                    result.push({
-                        towerId: tr.towerId,
-                        towerName: tr.tower.name,
-                        users: assignableUsers
-                    });
-                }
-            }
-            return result;
+            return await this.getAssignableLocalUsers(roleId);
         } else {
             throw new BadRequestException('Unknown role scope');
         }
@@ -88,11 +55,37 @@ export class RolesService {
     async create(role: CreateRoleDto): Promise<RoleResponse> {
         if (!role.name || role.name.length < 2) throw new BadRequestException('Role name is required and must be at least 2 characters long');
         if (await this.roleExist(role.name)) throw new BadRequestException('Role with this name already exists');
+        if (!role.scope || !['GLOBAL', 'LOCAL'].includes(role.scope))
+            throw new BadRequestException('Role scope must be GLOBAL or LOCAL');
 
-        const newRole = await this.prisma.role.create({
-            data: { ...role },
+        // Para roles locales, debe venir towerIds
+        if (role.scope === 'LOCAL' && (!role.towerIds || !Array.isArray(role.towerIds) || role.towerIds.length === 0)) {
+            throw new BadRequestException('towerIds are required for LOCAL roles');
+        }
+
+        // Usamos transacción para crear el rol y sus relaciones con torres
+        const createdRole = await this.prisma.$transaction(async (tx) => {
+            const newRole = await tx.role.create({
+                data: {
+                    name: role.name,
+                    description: role.description,
+                    scope: role.scope
+                }
+            });
+
+
+            if (role.scope === 'LOCAL') {
+                await Promise.all(
+                    role.towerIds!.map(towerId =>
+                        tx.towerRole.create({ data: { roleId: newRole.id, towerId } })
+                    )
+                );
+            }
+
+            return newRole;
         });
-        return newRole;
+
+        return createdRole;
     }
 
     //Function to add permission to a role
@@ -141,11 +134,34 @@ export class RolesService {
     async update(id: string, user: Partial<CreateRoleDto>): Promise<RoleResponse> {
         if (!(await this.roleExist(id))) throw new NotFoundException('Role not found');
         if (user.name && user.name.length < 2) throw new BadRequestException('Role name must be at least 2 characters long');
+        if (user.scope && !['GLOBAL', 'LOCAL'].includes(user.scope))
+            throw new BadRequestException('Role scope must be GLOBAL or LOCAL');
 
-        const updatedRole = await this.prisma.role.update({
-            where: { id },
-            data: user,
+        
+        if (user.scope === 'LOCAL' && user.towerIds && (!Array.isArray(user.towerIds) || user.towerIds.length === 0)) {
+            throw new BadRequestException('towerIds are required for LOCAL roles');
+        }
+
+        
+        const updatedRole = await this.prisma.$transaction(async (tx) => {
+            const role = await tx.role.update({
+                where: { id },
+                data: user,
+            });
+
+           
+            if (user.scope === 'LOCAL' && user.towerIds) {
+                await tx.towerRole.deleteMany({ where: { roleId: id } });
+                await Promise.all(
+                    user.towerIds.map(towerId =>
+                        tx.towerRole.create({ data: { roleId: id, towerId } })
+                    )
+                );
+            }
+
+            return role;
         });
+
         return updatedRole;
     }
 
@@ -163,6 +179,30 @@ export class RolesService {
         });
 
         return { message: 'Role permissions updated successfully' };
+    }
+
+    async updateRoleUsers(
+        roleId: string,
+        userIds: string[],
+        towerId?: string
+    ): Promise<{ message: string }> {
+        const role = await this.prisma.role.findUnique({ where: { id: roleId } });
+        if (!role) throw new NotFoundException('Role not found');
+
+        await this.prisma.$transaction(async (tx) => {
+            if (role.scope === 'GLOBAL') {
+                await tx.userRole.deleteMany({ where: { roleId } });
+                await this.assignUsersToGlobalRole(tx, roleId, userIds);
+            } else if (role.scope === 'LOCAL') {
+                if (!towerId) throw new BadRequestException('towerId is required for local roles');
+                await tx.userRoleLocal.deleteMany({ where: { roleId, towerId } });
+                await this.assignUsersToLocalRole(tx, roleId, userIds, towerId);
+            } else {
+                throw new BadRequestException('Unknown role scope');
+            }
+        });
+
+        return { message: 'Role users updated successfully' };
     }
 
 
@@ -197,6 +237,30 @@ export class RolesService {
             where: { roleId_permissionId: { roleId, permissionId } },
         });
         return { message: 'Permission removed from role successfully' };
+    }
+
+    async removeUserFromRole(
+        roleId: string,
+        userId: string,
+        towerId?: string
+    ): Promise<{ message: string }> {
+        const role = await this.prisma.role.findUnique({ where: { id: roleId } });
+        if (!role) throw new NotFoundException('Role not found');
+
+        if (role.scope === 'GLOBAL') {
+            await this.prisma.userRole.delete({
+                where: { userId_roleId: { userId, roleId } }
+            });
+            return { message: 'User removed from global role successfully' };
+        } else if (role.scope === 'LOCAL') {
+            if (!towerId) throw new BadRequestException('towerId is required for local roles');
+            await this.prisma.userRoleLocal.deleteMany({
+                where: { userId, roleId, towerId }
+            });
+            return { message: 'User removed from local role successfully' };
+        } else {
+            throw new BadRequestException('Unknown role scope');
+        }
     }
 
     //--------------------------------------------------------------------------------------
@@ -246,6 +310,48 @@ export class RolesService {
                 await prismaClient.userRoleLocal.create({ data: { userId, towerId, roleId } });
             }
         }
+    }
+
+    private async getAssignableGlobalUsers(roleId: string): Promise<AssignableUser[]> {
+        const userRoles = await this.prisma.userRole.findMany({ where: { roleId } });
+        const assignedUserIds = new Set(userRoles.map(ur => ur.userId));
+        const users = await this.prisma.user.findMany({
+            where: { id: { notIn: Array.from(assignedUserIds) } }
+        });
+        return users.map(u => ({
+            userId: u.id,
+            firstName: u.firstName,
+            lastName: u.lastName,
+            towerId: '',
+            towerName: ''
+        }));
+    }
+
+    private async getAssignableLocalUsers(roleId: string): Promise<AssignableUsersByTower[]> {
+        const towerRoles = await this.prisma.towerRole.findMany({ where: { roleId }, include: { tower: true } });
+        const result: AssignableUsersByTower[] = [];
+        for (const tr of towerRoles) {
+            const userTowers = await this.prisma.userTower.findMany({ where: { towerId: tr.towerId }, include: { user: true } });
+            const userRoleLocals = await this.prisma.userRoleLocal.findMany({ where: { towerId: tr.towerId, roleId } });
+            const assignedUserIds = new Set(userRoleLocals.map(ul => ul.userId));
+            const assignableUsers: AssignableUser[] = userTowers
+                .filter(ut => !assignedUserIds.has(ut.userId))
+                .map(ut => ({
+                    userId: ut.user.id,
+                    firstName: ut.user.firstName,
+                    lastName: ut.user.lastName,
+                    towerId: tr.towerId,
+                    towerName: tr.tower.name
+                }));
+            if (assignableUsers.length > 0) {
+                result.push({
+                    towerId: tr.towerId,
+                    towerName: tr.tower.name,
+                    users: assignableUsers
+                });
+            }
+        }
+        return result;
     }
 
 
