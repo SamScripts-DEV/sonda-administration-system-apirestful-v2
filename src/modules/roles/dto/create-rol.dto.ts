@@ -14,6 +14,6 @@ export class CreateRoleDto {
     @IsString()
     scope: 'GLOBAL' | 'LOCAL'; 
 
-    towerIds?: string[]; 
+    areaIds?: string[];
 
 }

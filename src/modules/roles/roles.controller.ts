@@ -41,6 +41,15 @@ export class RolesController {
         return this.rolesService.addPermissionToRole(roleId, permissionId);
     }
 
+    @Post(':roleId/users')
+    assignUsersToRole(
+        @Param('roleId', new ParseUUIDPipe()) roleId: string,
+        @Body('userIds') userIds: string[],
+        @Body('areaId') areaId?: string
+    ) {
+        return this.rolesService.assignUsersToRole(roleId, userIds, areaId);
+    }
+
 
     //--------------------------------------------------------------------------------------
     // PUT Methods (Used to update existing role information or settings)

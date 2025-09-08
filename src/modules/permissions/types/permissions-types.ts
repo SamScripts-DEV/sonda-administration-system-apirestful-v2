@@ -7,4 +7,4 @@ export interface Permission {
     updatedAt?: string;
 }
 
-export type PermissionResponse = Omit<Permission, 'createdAt' | 'updatedAt'>;
+export type PermissionResponse = Omit<Permission, 'createdAt' | 'updatedAt' | 'code'>;

@@ -1,4 +1,4 @@
-export interface Tower {
+export interface Area {
     id: string;
     name: string;
     description?: string | null;
@@ -6,4 +6,4 @@ export interface Tower {
     updatedAt?: string;
 }
 
-export type TowerResponse = Omit<Tower, 'createdAt' | 'updatedAt'>;
+export type AreaResponse = Omit<Area, 'createdAt' | 'updatedAt'>;

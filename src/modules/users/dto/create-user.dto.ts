@@ -20,8 +20,9 @@ export class CreateUserDto {
   @MinLength(6)
   passwordHash: string;
 
-  @IsString()
-  phone: string;
+  @IsArray()
+  @IsString({ each: true })
+  phone: string[];
 
   @IsBoolean()
   active?: boolean;
@@ -46,9 +47,13 @@ export class CreateUserDto {
   @IsString()
   country?: string;
 
+  @IsOptional()
+  @IsString()
+  province?: string;
+
   @IsArray()
   @IsString({ each: true })
-  towerIds: string[];
+  areaIds: string[];
 
   @IsString()
   departmentId: string;

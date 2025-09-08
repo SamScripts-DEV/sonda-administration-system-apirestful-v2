@@ -6,7 +6,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -43,7 +42,7 @@ model Role {
   updatedAt   DateTime @default(now())
   users       UserRole[]
   permissions RolePermission[]
-  towerRoles  TowerRole[]
+  areaRoles   AreaRole[]
   userRoleLocals UserRoleLocal[]
   @@map("role")
 }
@@ -53,6 +52,7 @@ model Permission {
   code        String   @unique
   name        String?
   description String?
+  module      String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @default(now())
   roles       RolePermission[]
@@ -75,13 +75,14 @@ model User {
   username     String   @unique
   email        String   @unique
   passwordHash String
-  phone        String
+  phone        String[]
   active       Boolean  @default(true)
   nationalId   String  @unique
   imageUrl     String?
   address      String?
   city         String?
   country      String?
+  province     String?
   departmentId String
   positionId   String?
   createdAt    DateTime @default(now())
@@ -89,7 +90,7 @@ model User {
   lastLogin    DateTime?
   department   Department @relation(fields: [departmentId], references: [id])
   position     Position?  @relation(fields: [positionId], references: [id])
-  towers       UserTower[]
+  areas        UserArea[]
   roles        UserRole[]
   roles_local  UserRoleLocal[]
   tokens       Token[]
@@ -112,33 +113,33 @@ model UserRole {
 model UserRoleLocal {
   id      String @id @default(uuid())
   userId  String
-  towerId String
+  areaId String
   roleId  String // Solo roles con scope "LOCAL"
-  user    User   @relation(fields: [userId], references: [id])
-  tower   Tower  @relation(fields: [towerId], references: [id])
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  area    Area  @relation(fields: [areaId], references: [id])
   role    Role   @relation(fields: [roleId], references: [id])
   @@map("user_role_local")
 }
 
-model Tower {
+model Area {
   id          String   @id @default(uuid())
   name        String   @unique
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @default(now())
-  userTowers  UserTower[] 
-  towerRoles  TowerRole[] 
+  userAreas  UserArea[] 
+  areaRoles  AreaRole[] 
   userRoleLocals UserRoleLocal[]
-  @@map("tower")
+  @@map("area")
 }
 
-model UserTower {
+model UserArea {
   id        String @id @default(uuid())
   userId    String
-  towerId   String
-  user      User   @relation(fields: [userId], references: [id])
-  tower     Tower  @relation(fields: [towerId], references: [id])
-  @@map("user_tower")
+  areaId   String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  area      Area  @relation(fields: [areaId], references: [id])
+  @@map("user_area")
 }
 
 model Token {
@@ -205,11 +206,11 @@ model VacationActionLog {
   @@map("vacation_action_log")
 }
 
-model TowerRole {
+model AreaRole {
   id      String @id @default(uuid())
-  towerId String
+  areaId String
   roleId  String
-  tower   Tower @relation(fields: [towerId], references: [id])
+  area    Area  @relation(fields: [areaId], references: [id])
   role    Role  @relation(fields: [roleId], references: [id])
-  @@map("tower_role")
+  @@map("area_role")
 }

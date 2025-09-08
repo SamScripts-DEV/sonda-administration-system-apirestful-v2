@@ -59,7 +59,7 @@ export class UsersController {
     async assignRolesToUser(
         @Param('userId', new ParseUUIDPipe()) userId: string,
         @Body('globalRoleIds') globalRoleIds: string[],
-        @Body('localRoles') localRoles: { towerId: string; roleId: string }[]
+        @Body('localRoles') localRoles: { areaId: string; roleId: string }[]
     ) {
         return await this.usersService.assignRolesToUser(userId, globalRoleIds, localRoles);
     }
@@ -114,7 +114,7 @@ export class UsersController {
     async updateUserRoles(
         @Param('userId', new ParseUUIDPipe()) userId: string,
         @Body('globalRoleIds') globalRoleIds: string[],
-        @Body('localRoles') localRoles: { towerId: string; roleId: string }[]
+        @Body('localRoles') localRoles: { areaId: string; roleId: string }[]
     ) {
         return await this.usersService.updateUserRoles(userId, globalRoleIds, localRoles);
     }

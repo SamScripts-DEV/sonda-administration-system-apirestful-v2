@@ -13,12 +13,12 @@ export interface AssignableUser {
     userId: string;
     firstName: string;
     lastName: string;
-    towerId: string; 
-    towerName: string;
+    areaId: string; 
+    areaName: string;
 }
 
-export interface AssignableUsersByTower {
-    towerId: string;
-    towerName: string;
+export interface AssignableUsersByArea {
+    areaId: string;
+    areaName: string;
     users: AssignableUser[];
 }

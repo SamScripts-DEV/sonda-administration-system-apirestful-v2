@@ -4,11 +4,17 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { FindAllForSelectType, UserWithRelationsDto } from './types/users-types';
 import { hashPassword } from 'src/utils/password.util';
 import { uploadImage } from 'src/utils/cloudinary.util';
+import { UserLdapSyncService } from './user-ldap-sync.service';
+import { User } from '@prisma/client';
+import { JwtPayloadDto } from '../auth/dto/jwt-payload.dto';
 
 
 @Injectable()
 export class UsersService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly userLdapSyncService: UserLdapSyncService
+    ) { }
 
     //--------------------------------------------------------------------------------------
     // GET Methods (Used to retrieve data from the server)
@@ -46,16 +52,17 @@ export class UsersService {
                 address: true,
                 city: true,
                 country: true,
-                roles: { select: { role: { select: { name: true } } } },
-                department: { select: { name: true } },
-                towers: { include: { tower: { select: { name: true } } } },
+                province: true,
+                roles: { select: { role: { select: { id: true, name: true } } } },
+                department: { select: { id: true, name: true } },
+                areas: { include: { area: { select: { id: true, name: true } } } },
                 roles_local: {
                     include: {
-                        tower: { select: { name: true } },
-                        role: { select: { name: true } }
+                        area: { select: { id: true, name: true } },
+                        role: { select: { id: true, name: true } }
                     }
                 },
-                position: { select: { name: true } },
+                position: { select: { id: true, name: true } },
                 imageUrl: true,
                 createdAt: true,
             },
@@ -80,7 +87,7 @@ export class UsersService {
         return this.formatUserWithRelations(user);
     }
 
-    async findOneByUsernameOrEmail(identifier: string): Promise<boolean> {
+    async findOneByUsernameOrEmail(identifier: string) {
         const user = await this.prisma.user.findFirst({
             where: {
                 OR: [
@@ -88,8 +95,22 @@ export class UsersService {
                     { email: identifier }
                 ]
             },
+            include: {
+                areas: { include: { area: true } },
+                roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } },
+                roles_local: {
+                    include: {
+                        area: true,
+                        role: { include: { permissions: { include: { permission: true } } } }
+                    }
+                },
+                department: true,
+                position: true
+            }
+
         });
-        return !!user;
+
+        return user;
     }
 
     // Function to get roles assigned to a user
@@ -107,7 +128,7 @@ export class UsersService {
             where: { userId },
             include: {
                 role: { select: { id: true, name: true, scope: true } },
-                tower: { select: { id: true, name: true } }
+                area: { select: { id: true, name: true } }
             }
         });
 
@@ -118,8 +139,8 @@ export class UsersService {
                 scope: r.role.scope
             })),
             localRoles: localRoles.map(lr => ({
-                towerId: lr.tower.id,
-                towerName: lr.tower.name,
+                areaId: lr.area.id,
+                areaName: lr.area.name,
                 roleId: lr.role.id,
                 roleName: lr.role.name,
                 scope: lr.role.scope
@@ -140,41 +161,41 @@ export class UsersService {
         const assignedGlobalRoleIds = new Set(userGlobalRoles.map(r => r.roleId));
         const assignableGlobalRoles = globalRoles.filter(r => !assignedGlobalRoleIds.has(r.id));
 
-        const [userTowers, userLocalRoles] = await Promise.all([
-            this.prisma.userTower.findMany({ where: { userId }, include: { tower: true } }),
+        const [userAreas, userLocalRoles] = await Promise.all([
+            this.prisma.userArea.findMany({ where: { userId }, include: { area: true } }),
             this.prisma.userRoleLocal.findMany({ where: { userId } })
         ]);
 
-        const assignedLocal = new Set(userLocalRoles.map(r => `${r.roleId}:${r.towerId}`));
+        const assignedLocal = new Set(userLocalRoles.map(r => `${r.roleId}:${r.areaId}`));
 
-        const towerIds = userTowers.map(ut => ut.towerId);
-        const towerRoles = await this.prisma.towerRole.findMany({
-            where: { towerId: { in: towerIds } },
-            include: { role: true, tower: true }
+        const areaIds = userAreas.map(ua => ua.areaId);
+        const areaRoles = await this.prisma.areaRole.findMany({
+            where: { areaId: { in: areaIds } },
+            include: { role: true, area: true }
         })
 
-        const localRolesByTower: Record<string, { towerId: string; towerName: string; roles: { roleId: string; roleName: string }[] }> = {};
-        for (const tr of towerRoles) {
-            const key = `${tr.towerId}:${tr.roleId}`;
+        const localRolesByArea: Record<string, { areaId: string; areaName: string; roles: { roleId: string; roleName: string }[] }> = {};
+        for (const ar of areaRoles) {
+            const key = `${ar.areaId}:${ar.roleId}`;
             if (!assignedLocal.has(key)) {
-                if (!localRolesByTower[tr.towerId]) {
-                    localRolesByTower[tr.towerId] = {
-                        towerId: tr.towerId,
-                        towerName: tr.tower.name,
+                if (!localRolesByArea[ar.areaId]) {
+                    localRolesByArea[ar.areaId] = {
+                        areaId: ar.areaId,
+                        areaName: ar.area.name,
                         roles: []
                     };
                 }
-                localRolesByTower[tr.towerId].roles.push({
-                    roleId: tr.roleId,
-                    roleName: tr.role.name
+                localRolesByArea[ar.areaId].roles.push({
+                    roleId: ar.roleId,
+                    roleName: ar.role.name
                 });
             }
 
         }
         return {
             globalRoles: assignableGlobalRoles.map(r => ({ id: r.id, name: r.name })),
-            localRoles: Object.values(localRolesByTower)
-        }
+            localRoles: Object.values(localRolesByArea)
+        };
 
 
     }
@@ -197,31 +218,47 @@ export class UsersService {
         user.passwordHash = await hashPassword(user.passwordHash)
         user.imageUrl = await this.handleImage(file);
 
-        const { towerIds, ...userData } = user;
+
+        const { areaIds, ...userData } = user;
+
+        this.normalizeBooleanFields(userData);
 
         const createdUser = await this.prisma.user.create({
             data: { ...userData },
-            include: { department: true, towers: { include: { tower: true } }, position: true }
+            include: { department: true, areas: { include: { area: true } }, position: true }
         });
 
-        if (towerIds && towerIds.length > 0) {
+        if (areaIds && areaIds.length > 0) {
             await Promise.all(
-                towerIds.map(towerId =>
-                    this.prisma.userTower.create({ data: { userId: createdUser.id, towerId } })
+                areaIds.map(areaId =>
+                    this.prisma.userArea.create({ data: { userId: createdUser.id, areaId } })
                 )
             );
         }
 
+
         const userWithRelations = await this.getUserWithRelations(createdUser.id);
 
-        return this.formatUserWithRelations(userWithRelations);
+        const userFormatted = this.formatUserWithRelations(userWithRelations);
+
+        const ldapPayload = this.userLdapSyncService.buildLdapPayload(userFormatted, user.passwordHash);
+
+        try {
+            await this.userLdapSyncService.syncUserToLdap(ldapPayload);
+
+        } catch (error) {
+            await this.prisma.user.delete({ where: { id: createdUser.id } });
+            throw new BadRequestException('Error syncing user to LDAP');
+        }
+
+        return userFormatted;
     }
 
     //Function to add a rol to user
     async assignRolesToUser(
         userId: string,
         globalRoleIds: string[] = [],
-        localRoles: { towerId: string; roleId: string }[] = []
+        localRoles: { areaId: string; roleId: string }[] = []
     ): Promise<{ message: string }> {
         await this.ensureUserExist(userId);
         await this.assignGlobalRoles(this.prisma, userId, globalRoleIds);
@@ -236,16 +273,16 @@ export class UsersService {
 
     //Function to update an existing user
     async update(id: string, user: Partial<CreateUserDto>, file?: Express.Multer.File): Promise<UserWithRelationsDto> {
-        const existingUser = await this.prisma.user.findUnique({ where: { id }, include: { department: true, towers: true, position: true } });
+        const existingUser = await this.prisma.user.findUnique({ where: { id }, include: { department: true, areas: true, position: true } });
         if (!existingUser) throw new NotFoundException('User not found');
 
         await this.validateRelationsPresents(user);
 
-        if (user.towerIds) {
-            await this.prisma.userTower.deleteMany({ where: { userId: id } });
+        if (user.areaIds) {
+            await this.prisma.userArea.deleteMany({ where: { userId: id } });
             await Promise.all(
-                user.towerIds.map(towerId =>
-                    this.prisma.userTower.create({ data: { userId: id, towerId } })
+                user.areaIds.map(areaId =>
+                    this.prisma.userArea.create({ data: { userId: id, areaId } })
                 )
             )
         }
@@ -256,12 +293,12 @@ export class UsersService {
             data: dataToUpdate,
             include: {
                 department: true,
-                towers: { include: { tower: true } },
+                areas: { include: { area: true } },
                 position: true,
                 roles: { select: { role: { select: { name: true } } } },
                 roles_local: {
                     include: {
-                        tower: { select: { name: true } },
+                        area: { select: { name: true } },
                         role: { select: { name: true } }
                     }
                 }
@@ -275,7 +312,7 @@ export class UsersService {
     async updateUserRoles(
         userId: string,
         globalRoleIds: string[] = [],
-        localRoles: { towerId: string; roleId: string }[] = []
+        localRoles: { areaId: string; roleId: string }[] = []
     ): Promise<{ message: string }> {
         if (!userId) throw new BadRequestException('User ID is required');
         await this.ensureUserExist(userId);
@@ -320,7 +357,7 @@ export class UsersService {
     async removeRoleFromUser(
         userId: string,
         roleId: string,
-        towerId?: string // Opcional, solo para roles locales
+        areaId?: string // Opcional, solo para roles locales
     ): Promise<{ message: string }> {
         if (!userId || !roleId) throw new BadRequestException('User ID and Role ID are required');
         const role = await this.ensureUserAndRoleExist(userId, roleId);
@@ -329,8 +366,8 @@ export class UsersService {
             await this.removeGlobalRole(userId, roleId);
             return { message: 'Global role removed from user successfully' };
         } else if (role.scope === 'LOCAL') {
-            if (!towerId) throw new BadRequestException('towerId is required for local roles');
-            await this.removeLocalRole(userId, roleId, towerId);
+            if (!areaId) throw new BadRequestException('areaId is required for local roles');
+            await this.removeLocalRole(userId, roleId, areaId);
             return { message: 'Local role removed from user successfully' };
         } else {
             throw new BadRequestException('Unknown role scope');
@@ -343,13 +380,13 @@ export class UsersService {
 
     //Function to validate required fields for user creation
     private async validateRequiredFields(user: CreateUserDto) {
-        const required = ['firstName', 'lastName', 'username', 'email', 'passwordHash', 'phone', 'towerIds', 'departmentId', 'nationalId'];
+        const required = ['firstName', 'lastName', 'username', 'email', 'passwordHash', 'phone', 'areaIds', 'departmentId', 'nationalId'];
         for (const field of required) {
             if (!user[field]) throw new BadRequestException(`Field ${field} is required.`);
         }
     }
 
-    //Function to validate that the relations (department, tower, position) exist in the database, and the id is valid and not null
+    //Function to validate that the relations (department, area, position) exist in the database, and the id is valid and not null
     private async validateRelations(user: CreateUserDto) {
         const [department, position] = await Promise.all([
             this.prisma.department.findUnique({ where: { id: user.departmentId } }),
@@ -357,9 +394,9 @@ export class UsersService {
         ]);
         if (!department) throw new BadRequestException('Invalid department ID');
         if (user.positionId && !position) throw new BadRequestException('Invalid position ID');
-        for (const towerId of user.towerIds) {
-            const tower = await this.prisma.tower.findUnique({ where: { id: towerId } });
-            if (!tower) throw new BadRequestException(`Invalid tower ID: ${towerId}`);
+        for (const areaId of user.areaIds) {
+            const area = await this.prisma.area.findUnique({ where: { id: areaId } });
+            if (!area) throw new BadRequestException(`Invalid area ID: ${areaId}`);
         }
     }
 
@@ -382,10 +419,10 @@ export class UsersService {
             const department = await this.prisma.department.findUnique({ where: { id: user.departmentId } });
             if (!department) throw new BadRequestException('Invalid department ID');
         }
-        if (user.towerIds && Array.isArray(user.towerIds)) {
-            for (const towerId of user.towerIds) {
-                const tower = await this.prisma.tower.findUnique({ where: { id: towerId } });
-                if (!tower) throw new BadRequestException(`Invalid tower ID: ${towerId}`);
+        if (user.areaIds && Array.isArray(user.areaIds)) {
+            for (const areaId of user.areaIds) {
+                const area = await this.prisma.area.findUnique({ where: { id: areaId } });
+                if (!area) throw new BadRequestException(`Invalid area ID: ${areaId}`);
             }
         }
         if (user.positionId) {
@@ -412,18 +449,43 @@ export class UsersService {
             email: user.email,
             username: user.username,
             phone: user.phone,
-            active: user.active ?? true, // Default to true if not provided
+            active: user.active ?? true,
             address: user.address ?? null,
             city: user.city ?? null,
             country: user.country ?? null,
-            roles: user.roles?.map(r => r.role.name) ?? [],
+            province: user.province ?? null,
+            roles: {
+                global: user.roles?.map(r => r.role.name) ?? [],
+                local: user.roles_local?.map(rl => ({
+                    area: rl.area.name,
+                    role: rl.role.name
+                })) ?? []
+            },
+            rolesDetailed: {
+                global: user.roles?.map(r => ({
+                    id: r.role.id,
+                    name: r.role.name
+                })) ?? [],
+                local: user.roles_local?.map(rl => ({
+                    area: {
+                        id: rl.area.id,
+                        name: rl.area.name
+                    },
+                    role: {
+                        id: rl.role.id,
+                        name: rl.role.name
+                    }
+                })) ?? []
+            },
             department: user.department?.name ?? null,
-            towers: user.towers?.map(ut => ut.tower.name) ?? [],
-            localRoles: user.roles_local?.map(rl => ({
-                tower: rl.tower.name,
-                role: rl.role.name
+            departmentId: user.department?.id ?? null,
+            areas: user.areas?.map(ua => ua.area.name) ?? [],
+            areasDetailed: user.areas?.map(ua => ({
+                id: ua.area.id,
+                name: ua.area.name
             })) ?? [],
             position: user.position?.name ?? null,
+            positionId: user.position?.id ?? null,
             imageUrl: user.imageUrl ?? null,
             createdAt: user.createdAt ? user.createdAt.toISOString() : null,
         };
@@ -453,9 +515,9 @@ export class UsersService {
         return !!userRole;
     }
 
-    private async userHasLocalRole(userId: string, roleId: string, towerId: string): Promise<boolean> {
+    private async userHasLocalRole(userId: string, roleId: string, areaId: string): Promise<boolean> {
         const userRoleLocal = await this.prisma.userRoleLocal.findFirst({
-            where: { userId, roleId, towerId }
+            where: { userId, roleId, areaId }
         });
         return !!userRoleLocal;
     }
@@ -475,16 +537,17 @@ export class UsersService {
                 address: true,
                 city: true,
                 country: true,
-                roles: { select: { role: { select: { name: true } } } },
-                department: { select: { name: true } },
-                towers: { include: { tower: { select: { name: true } } } },
+                province: true,
+                roles: { select: { role: { select: { id: true, name: true } } } },
+                department: { select: { id: true, name: true } },
+                areas: { include: { area: { select: { id: true, name: true } } } },
                 roles_local: {
                     include: {
-                        tower: { select: { name: true } },
-                        role: { select: { name: true } }
+                        area: { select: { id: true, name: true } },
+                        role: { select: { id: true, name: true } }
                     }
                 },
-                position: { select: { name: true } },
+                position: { select: { id: true, name: true } },
                 imageUrl: true,
                 createdAt: true,
             }
@@ -508,22 +571,22 @@ export class UsersService {
         }
     }
 
-    private async assignLocalRoles(prismaClient: any, userId: string, localRoles: { towerId: string; roleId: string }[]) {
+    private async assignLocalRoles(prismaClient: any, userId: string, localRoles: { areaId: string; roleId: string }[]) {
         if (!localRoles.length) return;
         const localRoleIds = localRoles.map(lr => lr.roleId);
-        const towerIds = localRoles.map(lr => lr.towerId);
-        const towerRoles = await prismaClient.towerRole.findMany({
+        const areaIds = localRoles.map(lr => lr.areaId);
+        const areaRoles = await prismaClient.areaRole.findMany({
             where: {
-                towerId: { in: towerIds },
+                areaId: { in: areaIds },
                 roleId: { in: localRoleIds }
             }
         });
-        const validTowerRoleSet = new Set(towerRoles.map(tr => `${tr.towerId}:${tr.roleId}`));
-        for (const { towerId, roleId } of localRoles) {
-            if (!validTowerRoleSet.has(`${towerId}:${roleId}`)) continue;
-            const exists = await prismaClient.userRoleLocal.findFirst({ where: { userId, towerId, roleId } });
+        const validAreaRoleSet = new Set(areaRoles.map(ar => `${ar.areaId}:${ar.roleId}`));
+        for (const { areaId, roleId } of localRoles) {
+            if (!validAreaRoleSet.has(`${areaId}:${roleId}`)) continue;
+            const exists = await prismaClient.userRoleLocal.findFirst({ where: { userId, areaId, roleId } });
             if (!exists) {
-                await prismaClient.userRoleLocal.create({ data: { userId, towerId, roleId } });
+                await prismaClient.userRoleLocal.create({ data: { userId, areaId, roleId } });
             }
         }
     }
@@ -535,9 +598,16 @@ export class UsersService {
         });
     }
 
-    private async removeLocalRole(userId: string, roleId: string, towerId: string) {
-        if (!(await this.userHasLocalRole(userId, roleId, towerId))) throw new BadRequestException('User does not have this local role in the specified tower');
-        await this.prisma.userRoleLocal.deleteMany({ where: { userId, towerId, roleId } });
+    private async removeLocalRole(userId: string, roleId: string, areaId: string) {
+        if (!(await this.userHasLocalRole(userId, roleId, areaId))) throw new BadRequestException('User does not have this local role in the specified area');
+        await this.prisma.userRoleLocal.deleteMany({ where: { userId, areaId, roleId } });
+    }
+
+    private normalizeBooleanFields(userData: any) {
+        if (typeof userData.active === 'string') {
+            userData.active = userData.active === 'true';
+        }
+        return userData;
     }
 }
 

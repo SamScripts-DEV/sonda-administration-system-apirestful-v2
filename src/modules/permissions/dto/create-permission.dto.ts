@@ -15,4 +15,8 @@ export class CreatePermissionDto {
     @MinLength(2)
     @IsOptional()
     description?: string;
+
+    @IsString()
+    @MinLength(2)
+    module: string;
 }
