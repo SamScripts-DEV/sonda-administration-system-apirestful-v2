@@ -5,6 +5,7 @@ import { verifyPassword } from 'src/utils/password.util';
 import { User } from '@prisma/client';
 import * as jwt from 'jsonwebtoken'
 import { UserWithRelationsDto } from '../users/types/users-types';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class AuthService {
@@ -24,36 +25,9 @@ export class AuthService {
     }
 
     async login(user: any) {
-        const globalPermissions = user.roles?.flatMap(r =>
-            r.role.permissions?.map(p => p.permission.code) ?? []
-        ) ?? [];
-
-        const localPermissions = user.roles_local?.flatMap(rl =>
-            rl.role.permissions?.map(p => p.permission.code) ?? []
-        ) ?? [];
-
-        const allPermissions = Array.from(new Set([...globalPermissions, ...localPermissions]));
-
         const payload = {
             sub: user.id,
             email: user.email,
-            areas: user.areas?.map(ua => ({
-                id: ua.area.id,
-                name: ua.area.name
-            })) ?? [],
-            roles: [
-                ...(user.roles?.map(r => ({
-                    id: r.role.id,
-                    name: r.role.name,
-                    scope: r.role.scope
-                })) ?? []),
-                ...(user.roles_local?.map(rl => ({
-                    id: rl.role.id,
-                    name: rl.role.name,
-                    scope: rl.role.scope
-                })) ?? [])
-            ],
-            permissions: allPermissions
         };
 
         return { access_token: this.jwtService.sign(payload, { expiresIn: '8h' }) };
@@ -71,8 +45,17 @@ export class AuthService {
         }
     }
 
-
     decodeToken(token: string) {
         return this.jwtService.decode(token);
     }
+
+
+    async getProfile(userId: string) {
+        return this.userService.findProfilePayload(userId)
+    }
+
+
+
+
+
 }

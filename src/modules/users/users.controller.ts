@@ -119,6 +119,10 @@ export class UsersController {
         return await this.usersService.updateUserRoles(userId, globalRoleIds, localRoles);
     }
 
+    @Patch(':id/activate')
+    async activateUser(@Param('id', new ParseUUIDPipe()) id: string) {
+        return await this.usersService.activate(id);
+    }
 
     //--------------------------------------------------------------------------------------
     // DELETE Methods (Used to delete or deactivate users)

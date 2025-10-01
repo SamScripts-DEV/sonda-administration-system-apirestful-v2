@@ -13,7 +13,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             jwtFromRequest: ExtractJwt.fromExtractors([
                 (req, request) => {
                     const tokenFromCookie = req.cookies?.token;
-                    const tokenFromHeader = req.headers.authorization?.split('')[1];
+                    const tokenFromHeader = req.headers.authorization?.split(' ')[1];
                     return tokenFromCookie || tokenFromHeader;
                 }
             ]),
@@ -26,6 +26,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         
         const user = await this.userService.findOneById(payload.sub);
         if (!user) return null;
-        return user; 
+        return payload; 
     }
 }

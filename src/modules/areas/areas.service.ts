@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateAreaDto } from './dto/create-area.dto';
-import { AreaResponse } from './types/areas-types';
+import { AreaResponse, AreaWithUsersResponse } from './types/areas-types';
+
 
 @Injectable()
 export class AreasService {
@@ -10,8 +11,53 @@ export class AreasService {
     //--------------------------------------------------------------------------------------
     // GET Methods
     //--------------------------------------------------------------------------------------
-    async findAll(): Promise<AreaResponse[]> {
-        return this.prisma.area.findMany();
+    async findAll(): Promise<AreaWithUsersResponse[]> {
+        const areas = await this.prisma.area.findMany({
+            include: {
+                userAreas:{
+                    include: {
+                        user:{
+                            select:{
+                                id: true,
+                                firstName: true,
+                                lastName: true,
+                                position:{
+                                    select: { name: true}
+                                }
+                            }
+                        }
+                    }
+                },
+                areaRoles: {
+                    select: {
+                        role: {
+                            select: {
+                                id: true,
+                                name: true
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        return areas.map(area => ({
+            id: area.id,
+            name: area.name,
+            description: area.description,
+            createdAt: area.createdAt,
+            updatedAt: area.updatedAt,
+            users: area.userAreas.map(ua => ({
+                id: ua.user.id,
+                firstName: ua.user.firstName,
+                lastName: ua.user.lastName,
+                position: ua.user.position?.name
+            })),
+            roles: area.areaRoles.map(ar => ({
+                id: ar.role.id,
+                name: ar.role.name
+            }))
+        }))
     }
 
     async findOne(id: string): Promise<AreaResponse> {

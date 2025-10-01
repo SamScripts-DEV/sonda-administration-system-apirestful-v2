@@ -1,18 +1,29 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateRoleDto } from './dto/create-rol.dto';
-import { AssignableUser, AssignableUsersByArea, RoleResponse } from './types/roles-types';
+import { AssignableUser, AssignableUsersByArea, RoleResponse, RoleResponseWithRelations } from './types/roles-types';
+import { UserLdapSyncService } from '../users/user-ldap-sync.service';
+import { permission } from 'process';
 
 
 @Injectable()
 export class RolesService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly userLdapSyncService: UserLdapSyncService
+
+    ) { }
 
     //--------------------------------------------------------------------------------------
     // GET Methods (Used to retrieve data from the server)
     //--------------------------------------------------------------------------------------
     async findAll(): Promise<RoleResponse[]> {
-        return this.prisma.role.findMany();
+        const roles = await this.prisma.role.findMany({
+            include: this.getRoleRelationsInclude()
+        })
+
+        return roles.map(role => this.formatRoleWithRelations(role))
+
     }
 
     async findOne(id: string): Promise<RoleResponse> {
@@ -85,21 +96,44 @@ export class RolesService {
             return newRole;
         });
 
-        return createdRole;
+        const fullRole = await this.prisma.role.findUnique({
+            where: { id: createdRole.id },
+            include: this.getRoleRelationsInclude()
+        });
+
+        return this.formatRoleWithRelations(fullRole);
+
     }
 
     //Function to add permission to a role
-    async addPermissionToRole(roleId: string, permissionId: string): Promise<{ message: string }> {
-        if (!roleId || !permissionId) throw new BadRequestException('Role ID and Permission ID are required');
-        await this.ensureRoleAndPermissionExist(roleId, permissionId);
-        const exists = await this.prisma.rolePermission.findUnique({
-            where: { roleId_permissionId: { roleId, permissionId } },
-        })
+    async addPermissionToRole(roleId: string, permissionIds: string[]): Promise<{ message: string }> {
+        
+        if (!roleId || !permissionIds || !Array.isArray(permissionIds) || permissionIds.length === 0) {
+            throw new BadRequestException('Es necesario proporcionar el rol y el/los permisos a asignar');
+        }
+        if (!(await this.roleExist(roleId))) throw new NotFoundException('Role not found');
 
-        if (exists) throw new BadRequestException('Permission already exists for this role');
+        for (const permissionId of permissionIds) {
+            await this.ensureRoleAndPermissionExist(roleId, permissionId);
+        }
 
-        await this.prisma.rolePermission.create({
-            data: { roleId, permissionId },
+        // Elimina duplicados existentes para evitar errores de clave única
+        const existing = await this.prisma.rolePermission.findMany({
+            where: {
+                roleId,
+                permissionId: { in: permissionIds }
+            }
+        });
+        const existingIds = new Set(existing.map(e => e.permissionId));
+        const toInsert = permissionIds.filter(id => !existingIds.has(id));
+
+        if (toInsert.length === 0) {
+            throw new BadRequestException('All permissions already exist for this role');
+        }
+
+        await this.prisma.rolePermission.createMany({
+            data: toInsert.map(permissionId => ({roleId, permissionId})),
+            skipDuplicates: true
         })
         return { message: 'Permission added to role successfully' };
     }
@@ -108,20 +142,27 @@ export class RolesService {
     async assignUsersToRole(
         roleId: string,
         userIds: string[],
-        areaId?: string // solo para roles locales
+        areaId?: string
     ): Promise<{ message: string }> {
         const role = await this.prisma.role.findUnique({ where: { id: roleId } });
         if (!role) throw new NotFoundException('Role not found');
+
+        let areaName: string | undefined
 
         await this.prisma.$transaction(async (tx) => {
             if (role.scope === 'GLOBAL') {
                 await this.assignUsersToGlobalRole(tx, roleId, userIds);
             } else if (role.scope === 'LOCAL') {
-                if (!areaId) throw new BadRequestException('areaId is required for local roles');
+                if (!areaId) throw new BadRequestException('Debes seleccionar el área para asignar usuarios para este rol');
+                const area = await tx.area.findUnique({ where: { id: areaId } });
+                if (!area) throw new NotFoundException('Area not found');
+                areaName = area.name;
                 await this.assignUsersToLocalRole(tx, roleId, userIds, areaId);
             } else {
                 throw new BadRequestException('Unknown role scope');
             }
+
+            await this.syncRoleAssignmentWithLdap(role, userIds, areaName)
         });
 
         return { message: 'Users assigned to role successfully' };
@@ -131,29 +172,31 @@ export class RolesService {
     //--------------------------------------------------------------------------------------
     // PUT Methods (Used to update existing role information or settings)
     //--------------------------------------------------------------------------------------
-    async update(id: string, user: Partial<CreateRoleDto>): Promise<RoleResponse> {
+    async update(id: string, updateRoleDto: Partial<CreateRoleDto>): Promise<RoleResponse> {
         if (!(await this.roleExist(id))) throw new NotFoundException('Role not found');
-        if (user.name && user.name.length < 2) throw new BadRequestException('Role name must be at least 2 characters long');
-        if (user.scope && !['GLOBAL', 'LOCAL'].includes(user.scope))
+        if (updateRoleDto.name && updateRoleDto.name.length < 2) throw new BadRequestException('Role name must be at least 2 characters long');
+        if (updateRoleDto.scope && !['GLOBAL', 'LOCAL'].includes(updateRoleDto.scope))
             throw new BadRequestException('Role scope must be GLOBAL or LOCAL');
 
 
-        if (user.scope === 'LOCAL' && user.areaIds && (!Array.isArray(user.areaIds) || user.areaIds.length === 0)) {
+        if (updateRoleDto.scope === 'LOCAL' && updateRoleDto.areaIds && (!Array.isArray(updateRoleDto.areaIds) || updateRoleDto.areaIds.length === 0)) {
             throw new BadRequestException('areaIds are required for LOCAL roles');
         }
 
-        
+        const { areaIds, ...roleData } = updateRoleDto;
+
+
         const updatedRole = await this.prisma.$transaction(async (tx) => {
             const role = await tx.role.update({
                 where: { id },
-                data: user,
+                data: roleData,
             });
 
 
-            if (user.scope === 'LOCAL' && user.areaIds) {
+            if (role.scope === 'LOCAL' && areaIds) {
                 await tx.areaRole.deleteMany({ where: { roleId: id } });
                 await Promise.all(
-                    user.areaIds.map(areaId =>
+                    areaIds.map(areaId =>
                         tx.areaRole.create({ data: { roleId: id, areaId } })
                     )
                 );
@@ -162,10 +205,16 @@ export class RolesService {
             return role;
         });
 
-        return updatedRole;
+        const fullRole = await this.prisma.role.findUnique({
+            where: { id: updatedRole.id },
+            include: this.getRoleRelationsInclude()
+        });
+
+        return this.formatRoleWithRelations(fullRole);
     }
 
     //Function to update permissions for a role
+
     async updateRolePermissions(roleId: string, permissionIds: string[]): Promise<{ message: string }> {
         if (!await this.roleExist(roleId)) throw new NotFoundException('Role not found');
 
@@ -215,10 +264,37 @@ export class RolesService {
 
     async remove(id: string): Promise<{ message: string }> {
         if (!id) throw new BadRequestException('Role ID is required');
+        const role = await this.prisma.role.findUnique({ where: { id } });
+        if (!role) throw new NotFoundException('Role not found');
         if (!(await this.roleExist(id))) throw new NotFoundException('Role not found');
-        await this.prisma.role.delete({
-            where: { id },
+
+        let areaName: string | undefined
+        if (role.scope === 'LOCAL') {
+            const areaRole = await this.prisma.areaRole.findFirst({ where: { roleId: id }, include: { area: true } });
+            areaName = areaRole?.area.name;
+        }
+
+        await this.prisma.$transaction(async (tx) => {
+            // Elimina relaciones internas (por si acaso, aunque tengas onDelete: Cascade)
+            await tx.userRole.deleteMany({ where: { roleId: id } });
+            await tx.userRoleLocal.deleteMany({ where: { roleId: id } });
+            await tx.areaRole.deleteMany({ where: { roleId: id } });
+            await tx.rolePermission.deleteMany({ where: { roleId: id } });
+
+            try {
+                const roleType = role.scope === 'GLOBAL' ? 'role_global' : 'role_local';
+                const ldapResponse = await this.userLdapSyncService.deleteRoleGroupInLdap(roleType, role.name, areaName);
+                if (!ldapResponse.success) {
+                    throw new BadRequestException(`LDAP: ${ldapResponse.data || ldapResponse.message || 'Unknown error'}`);
+                }
+            } catch (error) {
+                const detail = error?.response?.data?.detail || error?.response?.data?.message || error.message;
+                throw new BadRequestException(detail);
+            }
+
+            await tx.role.delete({ where: { id } });
         });
+
         return { message: 'Role deleted successfully' };
     }
 
@@ -247,20 +323,53 @@ export class RolesService {
         const role = await this.prisma.role.findUnique({ where: { id: roleId } });
         if (!role) throw new NotFoundException('Role not found');
 
-        if (role.scope === 'GLOBAL') {
-            await this.prisma.userRole.delete({
-                where: { userId_roleId: { userId, roleId } }
+        let areaName: string | undefined
+        let userEmail: string
+
+        await this.prisma.$transaction(async (tx) => {
+
+            if (role.scope === 'GLOBAL') {
+                await tx.userRole.delete({
+                    where: { userId_roleId: { userId, roleId } }
+                });
+            } else if (role.scope === 'LOCAL') {
+                if (!areaId) throw new BadRequestException('Error al enviar el area al servidor');
+
+                const area = await tx.area.findUnique({ where: { id: areaId } });
+                if (!area) throw new NotFoundException('Area not found');
+                areaName = area.name;
+
+                await tx.userRoleLocal.deleteMany({
+                    where: { userId, roleId, areaId }
+                });
+
+            } else {
+                throw new BadRequestException('Unknown role scope');
+            }
+
+            const user = await tx.user.findUnique({
+                where: { id: userId },
+                select: { email: true }
             });
-            return { message: 'User removed from global role successfully' };
-        } else if (role.scope === 'LOCAL') {
-            if (!areaId) throw new BadRequestException('areaId is required for local roles');
-            await this.prisma.userRoleLocal.deleteMany({
-                where: { userId, roleId, areaId }
-            });
-            return { message: 'User removed from local role successfully' };
-        } else {
-            throw new BadRequestException('Unknown role scope');
-        }
+            if (!user) throw new NotFoundException('User not found');
+            userEmail = user.email;
+
+
+            const roleType = role.scope === 'GLOBAL' ? 'role_global' : 'role_local';
+
+            try {
+                await this.userLdapSyncService.removeRoleFromUserInLdap(userEmail, roleType, role.name, areaName);
+            } catch (error) {
+                const detail = error?.response?.data?.detail || error?.response?.data?.message || error.message;
+                throw new BadRequestException(detail);
+
+            }
+
+        })
+
+        return { message: 'User removed from role successfully' };
+
+
     }
 
     //--------------------------------------------------------------------------------------
@@ -316,14 +425,25 @@ export class RolesService {
         const userRoles = await this.prisma.userRole.findMany({ where: { roleId } });
         const assignedUserIds = new Set(userRoles.map(ur => ur.userId));
         const users = await this.prisma.user.findMany({
-            where: { id: { notIn: Array.from(assignedUserIds) } }
+            where: { id: { notIn: Array.from(assignedUserIds) } },
+            include: {
+                areas: {
+                    include: {
+                        area: {
+                            select: { id: true, name: true }
+                        }
+                    }
+                }
+            }
         });
         return users.map(u => ({
             userId: u.id,
             firstName: u.firstName,
             lastName: u.lastName,
-            areaId: '',
-            areaName: ''
+            areas: u.areas.map(ua => ({
+                areaId: ua.area.id,
+                areaName: ua.area.name
+            }))
         }));
     }
 
@@ -340,8 +460,10 @@ export class RolesService {
                     userId: ua.user.id,
                     firstName: ua.user.firstName,
                     lastName: ua.user.lastName,
-                    areaId: ar.areaId,
-                    areaName: ar.area.name
+                    areas: [{
+                        areaId: ar.areaId,
+                        areaName: ar.area.name
+                    }]
                 }));
             if (assignableUsers.length > 0) {
                 result.push({
@@ -352,6 +474,103 @@ export class RolesService {
             }
         }
         return result;
+    }
+
+
+    private getRoleRelationsInclude() {
+        return {
+            areaRoles: {
+                include: {
+                    area: {
+                        select: { id: true, name: true }
+                    }
+                }
+            },
+            users: {
+                include: {
+                    user: {
+                        select: { id: true, firstName: true, lastName: true }
+                    }
+                }
+            },
+            userRoleLocals: {
+                include: {
+                    user: {
+                        select: { id: true, firstName: true, lastName: true }
+                    },
+                    area: {
+                        select: { id: true, name: true }
+                    }
+                }
+            },
+            permissions: {
+                include: {
+                    permission: {
+                        select: { id: true, name: true }
+                    }
+                }
+            }
+        };
+    }
+
+    private formatRoleWithRelations(role: any): RoleResponseWithRelations {
+        return {
+            id: role.id,
+            name: role.name,
+            description: role.description,
+            scope: role.scope,
+            createdAt: role.createdAt?.toISOString(),
+            updatedAt: role.updatedAt?.toISOString(),
+            areaIds: role.areaRoles?.map(ar => ar.area.id) ?? [],
+            users: [
+                ...(role.users?.map(ur => ({
+                    userId: ur.user.id,
+                    firstName: ur.user.firstName,
+                    lastName: ur.user.lastName,
+                    areas: []
+                })) ?? []),
+                ...(role.userRoleLocals?.map(ul => ({
+                    userId: ul.user.id,
+                    firstName: ul.user.firstName,
+                    lastName: ul.user.lastName,
+                    areas: [{
+                        areaId: ul.area.id,
+                        areaName: ul.area.name
+                    }]
+                })) ?? [])
+            ],
+            permissions: role.permissions?.map(rp => ({
+                id: rp.permission.id,
+                name: rp.permission.name
+            })) ?? []
+        };
+    }
+
+
+    private async syncRoleAssignmentWithLdap(role: any, userIds: string[], areaName?: string): Promise<void> {
+        const users = await this.prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { email: true }
+        })
+
+        const userEmails = users.map(user => user.email);
+
+        const ldapPayload = role.scope === 'GLOBAL'
+            ? {
+                users: userEmails,
+                role_global: role.name
+            }
+            : {
+                users: userEmails,
+                role_local: role.name,
+                area: areaName
+            }
+
+        const ldapResponse = await this.userLdapSyncService.assignRolesToUsersInLdap(ldapPayload);
+
+        if (!ldapResponse.success) {
+            throw new BadRequestException(`Error syncing role assignment with LDAP: ${ldapResponse.message}`);
+        }
     }
 
 

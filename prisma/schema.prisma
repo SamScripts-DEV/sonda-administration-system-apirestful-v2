@@ -53,6 +53,7 @@ model Permission {
   name        String?
   description String?
   module      String
+  group       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @default(now())
   roles       RolePermission[]
@@ -117,7 +118,7 @@ model UserRoleLocal {
   roleId  String // Solo roles con scope "LOCAL"
   user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   area    Area  @relation(fields: [areaId], references: [id])
-  role    Role   @relation(fields: [roleId], references: [id])
+  role    Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
   @@map("user_role_local")
 }
 
@@ -211,6 +212,6 @@ model AreaRole {
   areaId String
   roleId  String
   area    Area  @relation(fields: [areaId], references: [id])
-  role    Role  @relation(fields: [roleId], references: [id])
+  role    Role  @relation(fields: [roleId], references: [id], onDelete: Cascade)
   @@map("area_role")
 }

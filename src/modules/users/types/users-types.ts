@@ -72,3 +72,29 @@ export interface UserLdapSyncPayload {
   imageUrl?: string;
   createdAt?: string; 
 }
+
+export interface UserLdapUpdatePayload {
+  firstName?: string;
+  lastName?: string;
+  address?: string;
+  department?: string;
+  area?: string;
+  active?: boolean;
+  position?: string;
+  phone?: string[];
+  imageUrl?: string;
+  password?: string;
+}
+
+export interface LdapResponse {
+  success: boolean;
+  message: string;
+  data?: any;
+}
+
+export interface LdapRoleAssignmentPayload {
+    role_global?: string;
+    role_local?: string;
+    area?: string;
+    users: string[];
+}

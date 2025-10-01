@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { RolesService } from './roles.service';
 import { CreateRoleDto } from './dto/create-rol.dto';
 
@@ -26,6 +26,13 @@ export class RolesController {
         return this.rolesService.getPermissionsForRole(roleId);
     }
 
+
+    @Get(':roleId/assignable-users')
+    getAssignableUsers(@Param('roleId') roleId: string) {
+        return this.rolesService.getAssignableUsersForRole(roleId);
+    }
+
+
     //--------------------------------------------------------------------------------------
     // POST Methods (Used to create new role or related resources)
     //--------------------------------------------------------------------------------------
@@ -36,11 +43,12 @@ export class RolesController {
     }
 
     //Endpoint to add permission to a role
-    @Post(':roleId/permissions/:permissionId')
-    addPermission(@Param('roleId') roleId: string, @Param('permissionId') permissionId: string) {
-        return this.rolesService.addPermissionToRole(roleId, permissionId);
+    @Post(':roleId/permissions')
+    addPermission(@Param('roleId') roleId: string, @Body('permissionIds') permissionIds: string[]) {
+        return this.rolesService.addPermissionToRole(roleId, permissionIds);
     }
 
+    //Endpoint to add users to a role
     @Post(':roleId/users')
     assignUsersToRole(
         @Param('roleId', new ParseUUIDPipe()) roleId: string,
@@ -55,7 +63,7 @@ export class RolesController {
     // PUT Methods (Used to update existing role information or settings)
     //--------------------------------------------------------------------------------------
 
-    @Post(':id')
+    @Put(':id')
     update(@Param('id', new ParseUUIDPipe()) id: string, @Body() updateRoleDto: Partial<CreateRoleDto>) {
         return this.rolesService.update(id, updateRoleDto);
     }
@@ -74,9 +82,20 @@ export class RolesController {
     delete(@Param('id', new ParseUUIDPipe()) id: string) {
         return this.rolesService.remove(id);
     }
+
+    
     //Endpoint to remove permission from a role
     @Delete(':roleId/permissions/:permissionId')
     removePermission(@Param('roleId') roleId: string, @Param('permissionId') permissionId: string) {
         return this.rolesService.removePermissionFromRole(roleId, permissionId);
+    }
+
+    @Delete(':roleId/users/:userId')
+    removeUserFromRole(
+        @Param('roleId', new ParseUUIDPipe()) roleId: string,
+        @Param('userId', new ParseUUIDPipe()) userId: string,
+        @Query('areaId') areaId?: string
+    ) {
+        return this.rolesService.removeUserFromRole(roleId, userId, areaId);
     }
 }

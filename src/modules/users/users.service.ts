@@ -215,7 +215,8 @@ export class UsersService {
 
         await this.validateRelations(user)
 
-        user.passwordHash = await hashPassword(user.passwordHash)
+        const plainPassword = user.passwordHash;
+        const hashedPassword = await hashPassword(user.passwordHash)
         user.imageUrl = await this.handleImage(file);
 
 
@@ -224,7 +225,7 @@ export class UsersService {
         this.normalizeBooleanFields(userData);
 
         const createdUser = await this.prisma.user.create({
-            data: { ...userData },
+            data: { ...userData, passwordHash: hashedPassword },
             include: { department: true, areas: { include: { area: true } }, position: true }
         });
 
@@ -241,7 +242,7 @@ export class UsersService {
 
         const userFormatted = this.formatUserWithRelations(userWithRelations);
 
-        const ldapPayload = this.userLdapSyncService.buildLdapPayload(userFormatted, user.passwordHash);
+        const ldapPayload = this.userLdapSyncService.buildLdapPayload(userFormatted, plainPassword);
 
         try {
             await this.userLdapSyncService.syncUserToLdap(ldapPayload);
@@ -278,32 +279,58 @@ export class UsersService {
 
         await this.validateRelationsPresents(user);
 
-        if (user.areaIds) {
-            await this.prisma.userArea.deleteMany({ where: { userId: id } });
-            await Promise.all(
-                user.areaIds.map(areaId =>
-                    this.prisma.userArea.create({ data: { userId: id, areaId } })
-                )
-            )
-        }
+        const plainPassword = user.passwordHash;
 
-        const dataToUpdate = await this.buildUpdateData(user, file);
-        const updatedUser = await this.prisma.user.update({
-            where: { id },
-            data: dataToUpdate,
-            include: {
-                department: true,
-                areas: { include: { area: true } },
-                position: true,
-                roles: { select: { role: { select: { name: true } } } },
-                roles_local: {
-                    include: {
-                        area: { select: { name: true } },
-                        role: { select: { name: true } }
+        const { areaIds, ...dataToUpdate } = await this.buildUpdateData(user, file);
+        this.normalizeBooleanFields(dataToUpdate);
+
+        let updatedUser: any
+
+        await this.prisma.$transaction(async (tx) => {
+
+            if (user.areaIds) {
+                await tx.userArea.deleteMany({ where: { userId: id } });
+                await Promise.all(
+                    user.areaIds.map(areaId =>
+                        tx.userArea.create({ data: { userId: id, areaId } })
+                    )
+                )
+            }
+
+
+            updatedUser = await tx.user.update({
+                where: { id },
+                data: dataToUpdate,
+                include: {
+                    department: true,
+                    areas: { include: { area: true } },
+                    position: true,
+                    roles: { select: { role: { select: { name: true } } } },
+                    roles_local: {
+                        include: {
+                            area: { select: { name: true } },
+                            role: { select: { name: true } }
+                        }
                     }
+                },
+            });
+
+            const userFormatted = this.formatUserWithRelations(updatedUser);
+            const ldapPayload = this.userLdapSyncService.buildLdapUpdatePayload(userFormatted, plainPassword);
+
+            try {
+                const ldapResponse = await this.userLdapSyncService.updateUserInLdap(existingUser.email, ldapPayload);
+
+                if (!ldapResponse.success) {
+                    throw new BadRequestException(`Error syncing user update to LDAP: ${ldapResponse.message}`);
                 }
-            },
+            } catch (error) {
+                throw new BadRequestException(`Error syncing user update to LDAP: ${error.message}`);
+            }
+
         });
+
+
 
         return this.formatUserWithRelations(updatedUser);
     }
@@ -345,11 +372,51 @@ export class UsersService {
     async remove(id: string): Promise<{ message: string }> {
         const user = await this.prisma.user.findUnique({ where: { id } });
         if (!user) throw new NotFoundException('User not found');
-        await this.prisma.user.update({
-            where: { id },
-            data: { active: false }
+
+
+        await this.prisma.$transaction(async (tx) => {
+            await tx.user.update({
+                where: { id },
+                data: { active: false }
+            });
+
+            // (soft delete) in LDAP
+            try {
+                const ldapResponse = await this.userLdapSyncService.deleteUserInLdap(user.email);
+
+                if (!ldapResponse.success) {
+                    throw new BadRequestException(`Error deleting user in LDAP: ${ldapResponse.message}`);
+                }
+            } catch (error) {
+                throw new BadRequestException(`Error deleting user in LDAP: ${error.message}`);
+            }
         });
+
         return { message: 'User deleted successfully' };
+    }
+
+    async activate(id: string): Promise<{ message: string }> {
+        const user = await this.prisma.user.findUnique({ where: { id } });
+        if (!user) throw new NotFoundException('User not found');
+
+        await this.prisma.$transaction(async (tx) => {
+            await tx.user.update({
+                where: { id },
+                data: { active: true }
+            });
+
+            try {
+                const ldapResponse = await this.userLdapSyncService.reactivateUserInLdap(user.email);
+
+                if (!ldapResponse.success) {
+                    throw new BadRequestException(`Error reactivating user in LDAP: ${ldapResponse.message}`);
+                }
+            } catch (error) {
+                throw new BadRequestException(`Error reactivating user in LDAP: ${error.message}`);
+            }
+        })
+
+        return { message: 'User activated successfully' };
     }
 
 
@@ -608,6 +675,72 @@ export class UsersService {
             userData.active = userData.active === 'true';
         }
         return userData;
+    }
+
+
+
+    //Function to get user to validate permission based on JWT payload
+    async findProfilePayload(userId: string) {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            include: {
+                areas: { include: { area: true } },
+                roles: {
+                    include: {
+                        role: {
+                            include: {
+                                permissions: { include: { permission: true } }
+                            }
+                        }
+                    }
+                },
+                roles_local: {
+                    include: {
+                        role: {
+                            include: {
+                                permissions: { include: { permission: true } }
+                            }
+                        },
+                        area: true
+                    }
+                }
+            }
+        });
+        if (!user) return null;
+
+        const globalPermissions = user.roles?.flatMap(r =>
+            r.role.permissions?.map(p => p.permission.code) ?? []
+        ) ?? [];
+        const localPermissions = user.roles_local?.flatMap(rl =>
+            rl.role.permissions?.map(p => p.permission.code) ?? []
+        ) ?? [];
+        const allPermissions = Array.from(new Set([...globalPermissions, ...localPermissions]));
+
+        const areas = user.areas?.map(ua => ({
+            id: ua.area.id,
+            name: ua.area.name
+        })) ?? [];
+        const roles = [
+            ...(user.roles?.map(r => ({
+                id: r.role.id,
+                name: r.role.name,
+                scope: r.role.scope
+            })) ?? []),
+            ...(user.roles_local?.map(rl => ({
+                id: rl.role.id,
+                name: rl.role.name,
+                scope: rl.role.scope
+            })) ?? [])
+        ];
+
+        return {
+            sub: user.id,
+            email: user.email,
+            imageUrl: user.imageUrl ?? null,
+            areas,
+            roles,
+            permissions: allPermissions
+        };
     }
 }
 

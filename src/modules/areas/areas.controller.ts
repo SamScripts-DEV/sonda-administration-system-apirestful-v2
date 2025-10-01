@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
 import { AreasService } from './areas.service';
 import { CreateAreaDto } from './dto/create-area.dto';
 
@@ -25,7 +25,7 @@ export class AreasController {
     }
 
     // UPDATE area
-    @Post(':id')
+    @Put(':id')
     update(@Param('id', new ParseUUIDPipe()) id: string, @Body() updateAreaDto: Partial<CreateAreaDto>) {
         return this.areasService.update(id, updateAreaDto);
     }
