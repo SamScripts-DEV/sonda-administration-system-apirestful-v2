@@ -1,8 +1,14 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, ParseUUIDPipe, Patch, Post, Put, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { JwtAuthGuard } from '../auth/auth.guard';
+import { PermissionsGuard } from 'src/common/guards/permissions.guard';
+import { Permissions } from 'src/common/decorators/permissions.decorator';
+import { userReadStrategies, userReadOneStrategies } from './strategies';
+import { ProfileGuard } from 'src/common/guards/profile.guard';
 
+@UseGuards(JwtAuthGuard, ProfileGuard, PermissionsGuard)
 @Controller('users')
 export class UsersController {
     constructor(
@@ -18,13 +24,31 @@ export class UsersController {
     }
 
     @Get()
-    findAll() {
-        return this.usersService.findAllUsers();
+    @Permissions('user.read', 'user.area.read')
+    findAll(@Req() req) {     
+        const user = req.user;
+        const effective = user.effectivePermissions;
+
+        const readPer = effective.find(p => p.module === 'user' && p.group === 'read') || effective.find(p => p.code === 'system.full_access');
+        if (!readPer) throw new ForbiddenException('Insufficient permissions');
+
+        const strategy = userReadStrategies[readPer.code];
+        return strategy(this.usersService, user)
+        //return this.usersService.findAllUsers();
     }
 
     @Get(':id')
-    findOne(@Param('id') id: string) {
-        return this.usersService.findOneById(id);
+    @Permissions('user.read', 'user.area.read')
+    async findOne(@Req() req, @Param('id') id: string) {
+        const user = req.user;
+        const effective = user.effectivePermissions;
+
+        const readPer = effective.find(p => p.module === 'user' && p.group === 'read') || effective.find(p => p.code === 'system.full_access');
+        if (!readPer) throw new ForbiddenException('Insufficient permissions');
+
+        const strategy = userReadOneStrategies[readPer.code];
+        if (!strategy) throw new ForbiddenException('No strategy for this permission');
+        return strategy(this.usersService, user, id);
     }
 
 
@@ -39,6 +63,7 @@ export class UsersController {
     // POST Methods (Used to create new user accounts)
     //--------------------------------------------------------------------------------------
     @Post()
+    @Permissions('user.create','user.area.create')
     @UseInterceptors(FileInterceptor('image', {
         limits: {
             fileSize: 5 * 1024 * 1024, // 5 MB
@@ -56,6 +81,7 @@ export class UsersController {
 
 
     @Post(':userId/assign-roles')
+    @Permissions('user.create','user.update', 'user.area.update', 'user.roleglobal.assign', 'user.rolelocal.assign')
     async assignRolesToUser(
         @Param('userId', new ParseUUIDPipe()) userId: string,
         @Body('globalRoleIds') globalRoleIds: string[],
@@ -71,6 +97,7 @@ export class UsersController {
 
     // This endpoint allows updating user information, including the image if provided.
     @Patch(':id')
+    @Permissions('user.create','user.update', 'user.area.update')
     @UseInterceptors(FileInterceptor('image', {
         limits: {
             fileSize: 5 * 1024 * 1024, // 5 MB
@@ -92,6 +119,7 @@ export class UsersController {
 
     //This endpoint allows updating only the image of a user.
     @Patch(':id/uploaded-image')
+    @Permissions('user.create','user.update', 'user.area.update')
     @UseInterceptors(FileInterceptor('image', {
         limits: {
             fileSize: 5 * 1024 * 1024, // 5 MB
@@ -111,6 +139,7 @@ export class UsersController {
     }
 
     @Put(':userId/update-roles')
+    @Permissions('user.create','user.update', 'user.area.update', 'user.roleglobal.assign', 'user.rolelocal.assign', 'user.roleglobal.read')
     async updateUserRoles(
         @Param('userId', new ParseUUIDPipe()) userId: string,
         @Body('globalRoleIds') globalRoleIds: string[],
@@ -120,6 +149,7 @@ export class UsersController {
     }
 
     @Patch(':id/activate')
+    @Permissions('user.activate', 'user.desactivate', 'user.create', 'user.update', 'user.area.update')
     async activateUser(@Param('id', new ParseUUIDPipe()) id: string) {
         return await this.usersService.activate(id);
     }
@@ -128,12 +158,15 @@ export class UsersController {
     // DELETE Methods (Used to delete or deactivate users)
     //--------------------------------------------------------------------------------------
     @Delete(':id/delete')
+    @Permissions('user.delete')
     async remove(@Param('id', new ParseUUIDPipe()) id: string) {
         return await this.usersService.remove(id)
     }
 
     // Quitar un rol de un usuario
+
     @Delete(':userId/roles/:roleId')
+    @Permissions('user.create','user.update', 'user.area.update', 'user.roleglobal.assign', 'user.rolelocal.assign')
     removeRole(@Param('userId', new ParseUUIDPipe()) userId: string, @Param('roleId', new ParseUUIDPipe()) roleId: string) {
         return this.usersService.removeRoleFromUser(userId, roleId);
     }

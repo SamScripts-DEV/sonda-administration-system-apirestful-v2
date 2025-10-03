@@ -7,6 +7,7 @@ import { uploadImage } from 'src/utils/cloudinary.util';
 import { UserLdapSyncService } from './user-ldap-sync.service';
 import { User } from '@prisma/client';
 import { JwtPayloadDto } from '../auth/dto/jwt-payload.dto';
+import { permission } from 'process';
 
 
 @Injectable()
@@ -40,6 +41,49 @@ export class UsersService {
     //Function to get all users with formatted data
     async findAllUsers(): Promise<UserWithRelationsDto[]> {
         const users = await this.prisma.user.findMany({
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                nationalId: true,
+                email: true,
+                username: true,
+                phone: true,
+                active: true,
+                address: true,
+                city: true,
+                country: true,
+                province: true,
+                roles: { select: { role: { select: { id: true, name: true } } } },
+                department: { select: { id: true, name: true } },
+                areas: { include: { area: { select: { id: true, name: true } } } },
+                roles_local: {
+                    include: {
+                        area: { select: { id: true, name: true } },
+                        role: { select: { id: true, name: true } }
+                    }
+                },
+                position: { select: { id: true, name: true } },
+                imageUrl: true,
+                createdAt: true,
+            },
+        });
+
+        return users.map(user => this.formatUserWithRelations(user));
+    }
+
+    //Function to get user relations with a area specific.
+    async findByAreas(areaIds: string[]): Promise<UserWithRelationsDto[]> {
+        if (!areaIds || areaIds.length === 0) return [];
+
+        const users = await this.prisma.user.findMany({
+            where: {
+                areas: {
+                    some: {
+                        areaId: { in: areaIds }
+                    }
+                }
+            },
             select: {
                 id: true,
                 firstName: true,
@@ -196,7 +240,6 @@ export class UsersService {
             globalRoles: assignableGlobalRoles.map(r => ({ id: r.id, name: r.name })),
             localRoles: Object.values(localRolesByArea)
         };
-
 
     }
 
@@ -703,8 +746,10 @@ export class UsersService {
                         },
                         area: true
                     }
-                }
-            }
+                },
+                position: true
+            },
+            
         });
         if (!user) return null;
 
@@ -715,6 +760,20 @@ export class UsersService {
             rl.role.permissions?.map(p => p.permission.code) ?? []
         ) ?? [];
         const allPermissions = Array.from(new Set([...globalPermissions, ...localPermissions]));
+        const allPermissionsData = [
+            ...(user.roles?.flatMap(r => r.role.permissions?.map(p => ({
+                code: p.permission.code,
+                module: p.permission.module,
+                group: p.permission.group,
+                priority: p.permission.priority
+            })) ?? []) ?? []),
+            ...(user.roles_local?.flatMap(rl => rl.role.permissions?.map(p => ({
+                code: p.permission.code,
+                module: p.permission.module,
+                group: p.permission.group,
+                priority: p.permission.priority
+            })) ?? []) ?? [])
+        ];
 
         const areas = user.areas?.map(ua => ({
             id: ua.area.id,
@@ -732,6 +791,8 @@ export class UsersService {
                 scope: rl.role.scope
             })) ?? [])
         ];
+        const fullName = `${user.firstName} ${user.lastName}`;
+        const positionName = user.position?.name ?? null;
 
         return {
             sub: user.id,
@@ -739,8 +800,14 @@ export class UsersService {
             imageUrl: user.imageUrl ?? null,
             areas,
             roles,
-            permissions: allPermissions
+            permissions: allPermissions,
+            permissionsData: allPermissionsData,
+            fullName,
+            position: positionName
         };
     }
+
+
+
 }
 

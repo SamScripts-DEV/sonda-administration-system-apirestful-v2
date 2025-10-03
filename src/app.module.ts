@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './modules/users/users.module';
@@ -12,6 +12,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { HolidayModule } from './modules/holiday/holiday.module';
 import { VacationsModule } from './modules/vacations/vacations.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { PrismaService } from './prisma/prisma.service';
 
 @Module({
   imports: [UsersModule, AreasModule, DepartmentsModule, PositionsModule, RolesModule, PermissionsModule, TokensModule, PrismaModule, HolidayModule, VacationsModule, AuthModule],
@@ -19,3 +20,4 @@ import { AuthModule } from './modules/auth/auth.module';
   providers: [AppService],
 })
 export class AppModule {}
+

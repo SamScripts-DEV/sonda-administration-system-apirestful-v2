@@ -20,7 +20,7 @@ export class AuthService {
         if (!user) throw new UnauthorizedException('Invalid credentials');
 
         const pass = await verifyPassword(user.passwordHash, password)
-        if (!pass) throw new UnauthorizedException('Invalid credentials');
+        if (!pass) throw new UnauthorizedException('Contraseña incorrecta');
         return user;
     }
 

@@ -20,9 +20,9 @@ async function main() {
         { code: "user.activate", name: "Activar usuarios", description: "Permite activar usuarios", module: "user", group: "write" },
         { code: "user.deactivate", name: "Desactivar usuarios", description: "Permite desactivar usuarios", module: "user", group: "write" },
         { code: "user.area.read", name: "Ver usuarios de área", description: "Permite ver los usuarios asignados a un área específica", module: "user", group: "read" },
-        { code: "user.area.create", name: "Crear usuarios en área", description: "Permite crear usuarios en su área", module: "user", group: "write" },
-        { code: "user.area.update", name: "Editar usuarios de área", description: "Permite editar usuarios de su área", module: "user", group: "update" },
-        { code: "user.area.delete", name: "Eliminar usuarios de área", description: "Permite eliminar usuarios de su área", module: "user", group: "delete" },
+        //{ code: "user.area.create", name: "Crear usuarios en área", description: "Permite crear usuarios en su área", module: "user", group: "write" },
+        //{ code: "user.area.update", name: "Editar usuarios de área", description: "Permite editar usuarios de su área", module: "user", group: "update" },
+        //{ code: "user.area.delete", name: "Eliminar usuarios de área", description: "Permite eliminar usuarios de su área", module: "user", group: "delete" },
         { code: "user.roleglobal.assign", name: "Asignar roles globales", description: "Permite asignar roles globales a usuarios", module: "user", group: "write" },
         { code: "user.rolelocal.assign", name: "Asignar roles locales", description: "Permite asignar roles locales a usuarios", module: "user", group: "write" },
         { code: "user.rolelocal.read", name: "Ver roles locales", description: "Permite ver roles locales", module: "user", group: "read" },
@@ -43,7 +43,7 @@ async function main() {
         { code: "area.create", name: "Crear áreas", description: "Permite crear nuevas áreas", module: "area", group: "write" },
         { code: "area.update", name: "Editar áreas", description: "Permite editar áreas existentes", module: "area", group: "update" },
         { code: "area.delete", name: "Eliminar áreas", description: "Permite eliminar áreas", module: "area", group: "delete" },
-        { code: "area.assign.user", name: "Asignar usuarios a áreas", description: "Permite asignar usuarios a áreas", module: "area", group: "write" },
+        //{ code: "area.assign.user", name: "Asignar usuarios a áreas", description: "Permite asignar usuarios a áreas", module: "area", group: "write" },
 
         { code: "position.read", name: "Ver posiciones", description: "Permite ver todas las posiciones", module: "position", group: "read" },
         { code: "position.create", name: "Crear posiciones", description: "Permite crear nuevas posiciones", module: "position", group: "write" },
@@ -87,7 +87,34 @@ async function main() {
             scope: "GLOBAL"
         }
 
-    ]
+    ];
+
+    const departments = [
+        { name: "Operaciones C&DC", description: "Operaciones C&DC" }
+    ];
+
+    const positions = [
+        { name: "Consultor de operaciones 4", description: "Consultor de operaciones 4" },
+        { name: "Supervisor BOC", description: "Supervisor BOC" },
+        { name: "Técnico de operaciones BOC", description: "Técnico de operaciones BOC" },
+        { name: "Técnico de monitoreo", description: "Técnico de monitoreo" },
+        { name: "Coordinador", description: "Coordinador" },
+        { name: "Consultor de operaciones", description: "Consultor de operaciones" }, // para el 1
+        { name: "Consultor de operaciones 2", description: "Consultor de operaciones 2" },
+        { name: "Consultor de operaciones 3", description: "Consultor de operaciones 3" },
+        { name: "Gestor de servicios", description: "Gestor de servicios" },
+        { name: "Jefe de servicios", description: "Jefe de servicios" },
+        { name: "Especialistas CC1", description: "Especialistas CC1" },
+        { name: "Especialistas CC2", description: "Especialistas CC2" },
+        { name: "Especialistas CC3", description: "Especialistas CC3" },
+        { name: "Especialistas CC4", description: "Especialistas CC4" },
+        { name: "Jefe técnico", description: "Jefe técnico" }
+    ];
+
+    function getPriority(code: string): number {
+        if (code === 'system.full_access') return 1;
+        return code.split('.').length;
+    }
 
     for (const area of areas) {
         await prisma.area.upsert({
@@ -101,19 +128,39 @@ async function main() {
     for (const permission of permissions) {
         await prisma.permission.upsert({
             where: { code: permission.code },
-            update: { group: permission.group},
-            create: permission
+            update: { group: permission.group, priority: getPriority(permission.code) },
+            create: { ...permission, priority: getPriority(permission.code) },
         });
         console.log(`Permiso procesado: ${permission.code}`);
     }
 
     for (const role of roles) {
         await prisma.role.upsert({
-            where: {name: role.name},
+            where: { name: role.name },
             update: {},
             create: role
         })
     }
+
+    for (const department of departments) {
+        await prisma.department.upsert({
+            where: { name: department.name },
+            update: {},
+            create: department,
+        });
+        console.log(`Departamento procesado: ${department.name}`);
+    }
+
+    for (const position of positions) {
+        await prisma.position.upsert({
+            where: { name: position.name },
+            update: {},
+            create: position,
+        });
+        console.log(`Posición procesada: ${position.name}`);
+    }
+
+
 }
 
 main()
