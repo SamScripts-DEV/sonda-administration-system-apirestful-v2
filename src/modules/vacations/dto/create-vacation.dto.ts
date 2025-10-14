@@ -14,3 +14,9 @@ export class CreateVacationDto {
   @IsString()
   observation?: string;
 }
+
+export class VacationRequestFilterDto {
+    userId?: string;
+    areaId?: string;
+    status?: string;
+}

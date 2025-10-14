@@ -1,4 +1,6 @@
 import { PrismaClient } from "@prisma/client";
+import * as argon2 from 'argon2';
+
 
 const prisma = new PrismaClient();
 
@@ -160,9 +162,80 @@ async function main() {
         console.log(`Posición procesada: ${position.name}`);
     }
 
+    const devsRole = await prisma.role.findUnique({ where: { name: "DEVS" } })
+    const fullAccessPermission = await prisma.permission.findUnique({ where: { code: "system.full_access" } })
+
+    if (devsRole && fullAccessPermission) {
+        
+        await prisma.rolePermission.upsert({
+            where: {
+                roleId_permissionId: {
+                    roleId: devsRole.id,
+                    permissionId: fullAccessPermission.id
+                },
+            },
+            update: {},
+            create: {
+                roleId: devsRole.id,
+                permissionId: fullAccessPermission.id
+            },
+        });
+
+
+        const department = await prisma.department.findFirst();
+        const position = await prisma.position.findFirst();
+
+        if (department && position) {
+    
+            const adminEmail = 'admin@tusistema.com';
+            const adminPassword = 'Admin123'; 
+            const passwordHash = await argon2.hash(adminPassword);
+
+            const adminUser = await prisma.user.upsert({
+                where: { email: adminEmail },
+                update: {},
+                create: {
+                    firstName: 'Admin',
+                    lastName: 'Principal',
+                    username: 'admin',
+                    email: adminEmail,
+                    passwordHash,
+                    nationalId: '00000000-0',
+                    departmentId: department.id,
+                    positionId: position.id,
+                    phone: [],
+                    active: true,
+                },
+            });
+
+   
+            await prisma.userRole.upsert({
+                where: {
+                    userId_roleId: {
+                        userId: adminUser.id,
+                        roleId: devsRole.id,
+                    },
+                },
+                update: {},
+                create: {
+                    userId: adminUser.id,
+                    roleId: devsRole.id,
+                },
+            });
+
+            console.log('Usuario admin creado y configurado correctamente.');
+        } else {
+            console.log('No hay departamentos o posiciones creados. No se pudo crear el usuario admin.');
+        }
+    } else {
+        console.log('No se encontró el rol DEVS o el permiso system.full_access.');
+    }
 
 }
 
 main()
     .catch(e => { console.error(e); process.exit(1); })
     .finally(() => prisma.$disconnect());
+
+    //npx prisma db push
+    //npx ts-node prisma/seed.ts

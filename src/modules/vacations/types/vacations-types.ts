@@ -40,3 +40,5 @@ export interface VacationSummary {
   totalPendingDays: number;
   totalApprovedDays: number;
 }
+
+
