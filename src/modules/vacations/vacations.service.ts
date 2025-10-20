@@ -281,7 +281,7 @@ export class VacationsService {
     }
 
 
-    async deleteVacationRequest(requestId: string, userAuth: { id: string }): Promise<{message: string}> {
+    async deleteVacationRequest(requestId: string, userAuth: { id: string }): Promise<{ message: string }> {
         const request = await this.prisma.vacationRequest.findUnique({ where: { id: requestId } });
         if (!request) throw new ConflictException('Vacation request not found.');
         if (request.status !== 'PENDING') throw new ConflictException('Only pending requests can be deleted.');
@@ -307,7 +307,7 @@ export class VacationsService {
         let balance = await this.prisma.vacationBalance.findFirst({
             where: { userId, year }
         });
-        if (!balance){
+        if (!balance) {
             balance = await this.prisma.vacationBalance.create({
                 data: {
                     userId,
@@ -377,11 +377,9 @@ export class VacationsService {
     }
 
     private calculateDaysInRange(start: Date, end: Date): number {
-        const days = Math.ceil(
-            (end.getTime() - start.getTime()) / (1000 * 3600 * 24) + 1
-        );
-
-        return days;
+        const msInDay = 1000 * 60 * 60 * 24;
+        const diffMs = end.getTime() - start.getTime();
+        return Math.ceil((diffMs + 1000) / msInDay);
     }
 
     private async hasVacationRequestPending(userId: string, start: Date): Promise<boolean> {
@@ -415,7 +413,7 @@ export class VacationsService {
 
 
 
-    private async approveVacationRequest(request,approverId: string, observation?: string, ): Promise<VacationRequestResponse> {
+    private async approveVacationRequest(request, approverId: string, observation?: string,): Promise<VacationRequestResponse> {
         const daysByYear = this.splitDaysByYear(request.startDate, request.endDate);
 
         const year = request.startDate.getFullYear();

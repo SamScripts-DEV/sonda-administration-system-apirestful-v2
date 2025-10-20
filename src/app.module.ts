@@ -13,9 +13,10 @@ import { HolidayModule } from './modules/holiday/holiday.module';
 import { VacationsModule } from './modules/vacations/vacations.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { PrismaService } from './prisma/prisma.service';
+import { SalaryModule } from './modules/salary/salary.module';
 
 @Module({
-  imports: [UsersModule, AreasModule, DepartmentsModule, PositionsModule, RolesModule, PermissionsModule, TokensModule, PrismaModule, HolidayModule, VacationsModule, AuthModule],
+  imports: [UsersModule, AreasModule, DepartmentsModule, PositionsModule, RolesModule, PermissionsModule, TokensModule, PrismaModule, HolidayModule, VacationsModule, AuthModule, SalaryModule],
   controllers: [AppController],
   providers: [AppService],
 })

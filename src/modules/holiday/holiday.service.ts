@@ -36,8 +36,7 @@ export class HolidayService {
 
         const startDateObj = new Date(startDate);
         const endDateObj = new Date(endDate)
-        startDateObj.setHours(0, 0, 0, 0);
-        endDateObj.setHours(23, 59, 59, 999);
+
 
         const newHoliday = await this.prisma.holiday.create({
             data: {

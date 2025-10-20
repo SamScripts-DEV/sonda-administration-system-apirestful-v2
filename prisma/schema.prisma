@@ -17,8 +17,8 @@ model Department {
   id          String   @id @default(uuid())
   name        String   @unique
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now())
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @db.Timestamptz(6)
   users       User[]
   @@map("department")
 }
@@ -27,8 +27,8 @@ model Position {
   id          String   @id @default(uuid())
   name        String   @unique
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now())
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @db.Timestamptz(6)
   users       User[]
   @@map("position")
 }
@@ -38,8 +38,8 @@ model Role {
   name        String   @unique
   description String?
   scope       String    //"GLOBAL" o "LOCAL"
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now())
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @db.Timestamptz(6)
   users       UserRole[]
   permissions RolePermission[]
   areaRoles   AreaRole[]
@@ -55,8 +55,8 @@ model Permission {
   module      String
   group       String?
   priority    Int?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now())
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @db.Timestamptz(6)
   roles       RolePermission[]
   @@map("permission")
 }
@@ -87,9 +87,9 @@ model User {
   province     String?
   departmentId String
   positionId   String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @default(now())
-  lastLogin    DateTime?
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @db.Timestamptz(6)
+  lastLogin    DateTime? @db.Timestamptz(6)
   department   Department @relation(fields: [departmentId], references: [id])
   position     Position?  @relation(fields: [positionId], references: [id])
   areas        UserArea[]
@@ -100,6 +100,7 @@ model User {
   createdVacationRequests VacationRequest[] @relation("VacationCreatedBy")
   vacationBalances VacationBalance[]
   vacationActions VacationActionLog[] @relation("VacationActionBy")
+  salaryHistory SalaryHistory[]
   @@map("users")
 }
 
@@ -127,8 +128,8 @@ model Area {
   id          String   @id @default(uuid())
   name        String   @unique
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now())
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @db.Timestamptz(6)
   userAreas  UserArea[] 
   areaRoles  AreaRole[] 
   userRoleLocals UserRoleLocal[]
@@ -149,9 +150,9 @@ model Token {
   userId     String
   type       String
   tokenHash  String
-  expiresAt  DateTime
+  expiresAt  DateTime @db.Timestamptz(6)
   used       Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@map("token")
 }
@@ -159,11 +160,11 @@ model Token {
 model Holiday {
   id          String   @id @default(uuid())
   name        String
-  startDate   DateTime
-  endDate     DateTime
+  startDate   DateTime @db.Timestamptz(6)
+  endDate     DateTime @db.Timestamptz(6)
   observation String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now())
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @db.Timestamptz(6)
   @@map("holiday")
 }
 
@@ -171,13 +172,13 @@ model VacationRequest {
   id            String   @id @default(uuid())
   userId        String
   createdById   String
-  startDate     DateTime
-  endDate       DateTime
+  startDate     DateTime @db.Timestamptz(6)
+  endDate       DateTime @db.Timestamptz(6)
   daysRequested Int
   status        String   // "PENDING", "APPROVED", "REJECTED"
   observation   String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @default(now())
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @db.Timestamptz(6)
   user          User     @relation("VacationUser", fields: [userId], references: [id])
   createdBy     User     @relation("VacationCreatedBy", fields: [createdById], references: [id])
   actions       VacationActionLog[]
@@ -191,7 +192,7 @@ model VacationBalance {
   daysAvailable Int
   daysTaken     Int      @default(0)
   daysOwed      Int      @default(0)
-  updatedAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @db.Timestamptz(6)
   user          User     @relation(fields: [userId], references: [id])
   @@map("vacation_balance")
 }
@@ -201,7 +202,7 @@ model VacationActionLog {
   vacationRequestId String
   action            String   // "APPROVED", "REJECTED"
   actionById        String
-  actionAt          DateTime @default(now())
+  actionAt          DateTime @default(now()) @db.Timestamptz(6)
   comment           String?
   vacationRequest   VacationRequest @relation(fields: [vacationRequestId], references: [id])
   actionBy          User     @relation("VacationActionBy", fields: [actionById], references: [id])
@@ -215,4 +216,21 @@ model AreaRole {
   area    Area  @relation(fields: [areaId], references: [id])
   role    Role  @relation(fields: [roleId], references: [id], onDelete: Cascade)
   @@map("area_role")
+}
+
+
+model SalaryHistory {
+  id        String   @id @default(uuid())
+  userId    String
+  amount    String
+  currency  String   
+  validFrom DateTime @db.Timestamptz(6) 
+  validTo   DateTime? @db.Timestamptz(6) 
+  comment   String?
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedBy String?  
+
+  user      User     @relation(fields: [userId], references: [id])
+  @@map("salary_history")
 }

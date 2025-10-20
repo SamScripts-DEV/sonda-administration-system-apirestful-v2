@@ -58,7 +58,7 @@ export class VacationsController {
     }
 
 
-    @Delete('id')
+    @Delete(':id')
     async getVacationRequestById(
         @Param('id') id: string,
         @Req() req
