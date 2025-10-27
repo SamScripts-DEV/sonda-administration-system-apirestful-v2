@@ -2,12 +2,18 @@ import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nest
 import { SalaryService } from './salary.service';
 import { CreateSalaryDto } from './dto/create-salary.dto';
 import { JwtAuthGuard } from '../auth/auth.guard';
+import { MultiJwtGuard } from 'src/common/guards/multi-jwt.guard';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(MultiJwtGuard)
 @Controller('salary')
 export class SalaryController {
     
     constructor(private readonly salaryService: SalaryService){}
+
+    @Get('current-all')
+    async getAllCurrentSalaries() {
+        return this.salaryService.getAllCurrentSalaries();
+    }
 
     @Get('current/:userId')
     async getCurrent(@Param('userId') userId: string) {

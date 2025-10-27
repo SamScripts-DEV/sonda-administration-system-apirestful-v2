@@ -69,6 +69,32 @@ export class SalaryService {
         return record ? this.toResponse(record) : null;
     }
 
+    async getAllCurrentSalaries(): Promise<SalaryHistory[]> {
+        const now = new Date();
+        const records = await this.prisma.salaryHistory.findMany({
+            where: {
+                validFrom: { lte: now },
+                OR: [
+                    { validTo: null },
+                    { validTo: { gte: now } }
+                ]
+            },
+            orderBy: [
+                { userId: "asc" },
+                { validFrom: "desc" }
+            ]
+        });
+
+        const latestByUser = new Map<string, SalaryHistory>();
+        for (const record of records) {
+            if (!latestByUser.has(record.userId)) {
+                latestByUser.set(record.userId, this.toResponse(record));
+            }
+        }
+
+        return Array.from(latestByUser.values());
+    }
+
 
     async getSalaryHistory(userId: string): Promise<SalaryHistory[]> {
         const records = await this.prisma.salaryHistory.findMany({
