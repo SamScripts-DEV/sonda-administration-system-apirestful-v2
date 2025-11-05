@@ -101,6 +101,9 @@ model User {
   vacationBalances VacationBalance[]
   vacationActions VacationActionLog[] @relation("VacationActionBy")
   salaryHistory SalaryHistory[]
+  shiftAssignments ShiftAssignment[] @relation("UserShiftAssignments")
+  originalShiftAssignments ShiftAssignment[] @relation("OriginalUser")
+  shiftEvents ShiftEvent[]
   @@map("users")
 }
 
@@ -133,6 +136,7 @@ model Area {
   userAreas  UserArea[] 
   areaRoles  AreaRole[] 
   userRoleLocals UserRoleLocal[]
+  shiftAssignments ShiftAssignment[]
   @@map("area")
 }
 
@@ -215,6 +219,7 @@ model AreaRole {
   roleId  String
   area    Area  @relation(fields: [areaId], references: [id])
   role    Role  @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  shiftTypeRoleLocals ShiftTypeRoleLocal[]
   @@map("area_role")
 }
 
@@ -233,4 +238,88 @@ model SalaryHistory {
 
   user      User     @relation(fields: [userId], references: [id])
   @@map("salary_history")
+}
+
+
+model ShiftType {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  color       String?
+  isRotative  Boolean  @default(false)
+  isStandby   Boolean  @default(false)
+  
+  isActive    Boolean  @default(true)
+  schedules   ShiftSchedule[]
+  assignments ShiftAssignment[]
+  roleLocals  ShiftTypeRoleLocal[]
+  @@map("shift_type")
+}
+
+model ShiftSchedule {
+  id          String   @id @default(uuid())
+  shiftTypeId String
+  dayOfWeek   Int?
+  startTime   String
+  endTime     String
+  shiftType   ShiftType @relation(fields: [shiftTypeId], references: [id])
+  @@map("shift_schedule")
+}
+
+model ShiftTypeRoleLocal {
+  id             String @id @default(uuid())
+  shiftTypeId    String
+  areaRoleId     String
+  shiftType      ShiftType @relation(fields: [shiftTypeId], references: [id])
+  areaRole       AreaRole @relation(fields: [areaRoleId], references: [id])
+  @@map("shift_type_role_local")
+}
+
+model ShiftAssignment {
+  id                String   @id @default(uuid())
+  userId            String
+  shiftTypeId       String
+  date              DateTime @db.Timestamptz(6)
+  observation       String?
+  createdAt         DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @db.Timestamptz(6)
+  originalUserId    String?
+  isExtra           Boolean  @default(false)
+  isCompleted       Boolean  @default(true)
+  isHoliday         Boolean  @default(false)
+  isWeekend         Boolean  @default(false)
+  isStandby         Boolean  @default(false)
+  areaId            String
+
+  user              User     @relation("UserShiftAssignments", fields: [userId], references: [id])
+  originalUser      User?    @relation("OriginalUser", fields: [originalUserId], references: [id])
+  shiftType         ShiftType @relation(fields: [shiftTypeId], references: [id])
+  area              Area     @relation(fields: [areaId], references: [id])
+
+  events            ShiftEvent[]
+  hours             ShiftHours?
+  @@map("shift_assignment")
+}
+
+model ShiftHours {
+  id                  String   @id @default(uuid())
+  shiftAssignmentId   String   @unique
+  worked              Int      @default(0)
+  ordinary            Int      @default(0)
+  extra               Int      @default(0)
+  supplementary       Int      @default(0)
+  shiftAssignment     ShiftAssignment @relation(fields: [shiftAssignmentId], references: [id])
+  @@map("shift_hours")
+}
+
+model ShiftEvent {
+  id              String   @id @default(uuid())
+  shiftAssignmentId String
+  userId          String
+  eventType       String
+  eventDate       DateTime @default(now()) @db.Timestamptz(6)
+  observation     String?
+  shiftAssignment ShiftAssignment @relation(fields: [shiftAssignmentId], references: [id])
+  user            User     @relation(fields: [userId], references: [id])
+  @@map("shift_event")
 }
