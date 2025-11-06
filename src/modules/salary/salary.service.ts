@@ -64,7 +64,16 @@ export class SalaryService {
                     { validTo: { gte: now } }
                 ]
             },
-            orderBy: { validFrom: 'desc' }
+            orderBy: { validFrom: 'desc' },
+            include: {
+                user: {
+                    include: {
+                        userTechnicalLevels: {
+                            include: { technicalLevel: true }
+                        }
+                    }
+                }
+            }
         });
         return record ? this.toResponse(record) : null;
     }
@@ -137,10 +146,22 @@ export class SalaryService {
     }
 
 
-    private toResponse = (record: any): SalaryHistory => ({
-        ...record,
-        amount: decryptSalary(record.amount),
-    });
+    private toResponse(record: any): SalaryHistory {
+        const technicalLevelName =
+            record.user?.userTechnicalLevels?.[0]?.technicalLevel?.name;
+
+        return {
+            id: record.id,
+            userId: record.userId,
+            amount: decryptSalary(record.amount),
+            currency: record.currency,
+            validFrom: record.validFrom,
+            validTo: record.validTo,
+            comment: record.comment,
+            updatedBy: record.updatedBy,
+            technicalLevelName,
+        };
+    }
 
 
     private async closePreviousSalaryRecord(userId: string, newValidFrom: Date) {

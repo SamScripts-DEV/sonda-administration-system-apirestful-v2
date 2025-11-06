@@ -104,6 +104,7 @@ model User {
   shiftAssignments ShiftAssignment[] @relation("UserShiftAssignments")
   originalShiftAssignments ShiftAssignment[] @relation("OriginalUser")
   shiftEvents ShiftEvent[]
+  userTechnicalLevels UserTechnicalLevel[]
   @@map("users")
 }
 
@@ -248,7 +249,7 @@ model ShiftType {
   color       String?
   isRotative  Boolean  @default(false)
   isStandby   Boolean  @default(false)
-  
+
   isActive    Boolean  @default(true)
   schedules   ShiftSchedule[]
   assignments ShiftAssignment[]
@@ -322,4 +323,24 @@ model ShiftEvent {
   shiftAssignment ShiftAssignment @relation(fields: [shiftAssignmentId], references: [id])
   user            User     @relation(fields: [userId], references: [id])
   @@map("shift_event")
+}
+
+
+model TechnicalLevel {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  users       UserTechnicalLevel[]
+  @@map("technical_level")
+}
+
+
+model UserTechnicalLevel {
+  id               String   @id @default(uuid())
+  userId           String
+  technicalLevelId String
+  user             User           @relation(fields: [userId], references: [id])
+  technicalLevel   TechnicalLevel @relation(fields: [technicalLevelId], references: [id])
+  @@unique([userId, technicalLevelId])
+  @@map("user_technical_level")   
 }

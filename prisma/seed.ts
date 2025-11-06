@@ -113,6 +113,12 @@ async function main() {
         { name: "Jefe técnico", description: "Jefe técnico" }
     ];
 
+    const technicalLevels = [
+        { name: 'N1', description: 'Nivel Técnico 1' },
+        { name: 'N2', description: 'Nivel Técnico 2' },
+        { name: 'N3', description: 'Nivel Técnico 3' },
+    ];
+
     function getPriority(code: string): number {
         if (code === 'system.full_access') return 1;
         return code.split('.').length;
@@ -162,11 +168,20 @@ async function main() {
         console.log(`Posición procesada: ${position.name}`);
     }
 
+    for (const level of technicalLevels) {
+        await prisma.technicalLevel.upsert({
+            where: { name: level.name },
+            update: {},
+            create: level,
+        });
+        console.log(`Nivel técnico procesado: ${level.name}`);
+    }
+
     const devsRole = await prisma.role.findUnique({ where: { name: "DEVS" } })
     const fullAccessPermission = await prisma.permission.findUnique({ where: { code: "system.full_access" } })
 
     if (devsRole && fullAccessPermission) {
-        
+
         await prisma.rolePermission.upsert({
             where: {
                 roleId_permissionId: {
@@ -186,9 +201,9 @@ async function main() {
         const position = await prisma.position.findFirst();
 
         if (department && position) {
-    
+
             const adminEmail = 'admin@tusistema.com';
-            const adminPassword = 'Admin123'; 
+            const adminPassword = 'Admin123';
             const passwordHash = await argon2.hash(adminPassword);
 
             const adminUser = await prisma.user.upsert({
@@ -208,7 +223,7 @@ async function main() {
                 },
             });
 
-   
+
             await prisma.userRole.upsert({
                 where: {
                     userId_roleId: {
@@ -237,5 +252,5 @@ main()
     .catch(e => { console.error(e); process.exit(1); })
     .finally(() => prisma.$disconnect());
 
-    //npx prisma db push
-    //npx ts-node prisma/seed.ts
+//npx prisma db push
+//npx ts-node prisma/seed.ts
