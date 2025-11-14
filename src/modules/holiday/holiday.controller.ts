@@ -22,6 +22,8 @@ export class HolidayController {
         return this.holidayService.getWeebHookFormat(y);
     }
 
+    
+
     @UseGuards(JwtAuthGuard)
     @Get(':id')
     async findOne(@Param('id') id: string) {

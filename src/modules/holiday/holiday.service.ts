@@ -34,20 +34,31 @@ export class HolidayService {
             }));
         }
 
-        const holidaysData = await this.externalHolidayService.fetchExternalHolidays(targetYear);
-        const dtos = this.externalHolidayService.formatToHolidaysDtos(holidaysData, targetYear);
+        try {
+            const holidaysData = await this.externalHolidayService.fetchExternalHolidays(targetYear);
+            const dtos = this.externalHolidayService.formatToHolidaysDtos(holidaysData, targetYear);
 
-        const created = await Promise.all(
-            dtos.map(dto => this.prisma.holiday.create({ data: dto }))
-        );
-        
-        return created.map(h => ({
-            ...h,
-            startDate: h.startDate.toISOString(),
-            endDate: h.endDate.toISOString(),
-        }))
+            if (dtos.length === 0) {
+                return [];
+            }
+
+            const created = await Promise.all(
+                dtos.map(dto => this.prisma.holiday.create({ data: dto }))
+            );
+
+            return created.map(h => ({
+                ...h,
+                startDate: h.startDate.toISOString(),
+                endDate: h.endDate.toISOString(),
+            }))
+
+        } catch (error) {
+            console.error(`Error syncing holidays for year ${targetYear}: ${error.message}`);
+            return [];
+        }
     }
 
+    
     async getWeebHookFormat(year?: number): Promise<any> {
         const targetYear = year || new Date().getFullYear();
         const holidays = await this.findAll(targetYear);
@@ -61,7 +72,7 @@ export class HolidayService {
                 let d = new Date(start);
                 d <= end;
                 d.setUTCDate(d.getUTCDate() + 1)
-            ){
+            ) {
                 const dateEcuador = new Date(d.getTime() - (5 * 60 * 60 * 1000))
                 const dateStr = dateEcuador.toISOString().substring(0, 10);
 
@@ -70,7 +81,7 @@ export class HolidayService {
                     event: h.name,
                     effectiveDate: dateStr,
                     notes: h.observation || '',
-                    
+
                 })
             }
         });
