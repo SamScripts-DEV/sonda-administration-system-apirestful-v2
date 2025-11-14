@@ -1,7 +1,10 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { TechnicalLevelService } from './technical-level.service';
 import { CreateTechnicalLevelDto } from './dto/create-technical-level.dto';
+import { JwtAuthGuard } from '../auth/auth.guard';
 
+
+@UseGuards(JwtAuthGuard)
 @Controller('technical-level')
 export class TechnicalLevelController {
   constructor(private readonly service: TechnicalLevelService) {}

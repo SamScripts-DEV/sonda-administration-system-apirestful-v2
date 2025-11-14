@@ -45,6 +45,11 @@ export class UsersService {
                 id: true,
                 firstName: true,
                 lastName: true,
+                userTechnicalLevels: {
+                    include: {
+                        technicalLevel: true
+                    }
+                },
                 nationalId: true,
                 email: true,
                 username: true,
@@ -551,6 +556,7 @@ export class UsersService {
 
     //Function to format the user with relations
     private formatUserWithRelations(user: any): UserWithRelationsDto {
+        const technicalLevelObj = user.userTechnicalLevels?.[0]?.technicalLevel;
         return {
             id: user.id,
             firstName: user.firstName,
@@ -598,6 +604,8 @@ export class UsersService {
             positionId: user.position?.id ?? null,
             imageUrl: user.imageUrl ?? null,
             createdAt: user.createdAt ? user.createdAt.toISOString() : null,
+            technicalLevel: technicalLevelObj?.name ?? null,
+            technicalLevelId: technicalLevelObj?.id ?? null,
         };
     }
 
@@ -639,6 +647,11 @@ export class UsersService {
                 id: true,
                 firstName: true,
                 lastName: true,
+                userTechnicalLevels: {
+                    include: {
+                        technicalLevel: true
+                    }
+                },
                 nationalId: true,
                 email: true,
                 username: true,
@@ -749,7 +762,7 @@ export class UsersService {
                 },
                 position: true
             },
-            
+
         });
         if (!user) return null;
 

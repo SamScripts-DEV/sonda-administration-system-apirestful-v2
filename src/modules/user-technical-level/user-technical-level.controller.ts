@@ -1,7 +1,10 @@
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { UserTechnicalLevelService } from './user-technical-level.service';
 import { CreateUserTechnicalLevelDto } from './dto/create-user-technical-level.dto';
+import { JwtAuthGuard } from '../auth/auth.guard';
 
+
+@UseGuards(JwtAuthGuard)
 @Controller('user-technical-level')
 export class UserTechnicalLevelController {
   constructor(private readonly service: UserTechnicalLevelService) {}

@@ -47,6 +47,8 @@ export interface UserWithRelationsDto {
     positionId?: string;
     imageUrl: string | null;
     createdAt?: string;
+    technicalLevel?: string;
+    technicalLevelId?: string;
 }
 
 
