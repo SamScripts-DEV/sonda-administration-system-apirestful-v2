@@ -5,11 +5,12 @@ import { UsersService } from './users.service';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { HttpModule } from '@nestjs/axios';
 import { UserLdapSyncService } from './user-ldap-sync.service';
+import { UsersPublicUsersController } from './users-public.controller';
 
 
 @Module({
   imports: [PrismaModule, HttpModule, ConfigModule],
-  controllers: [UsersController],
+  controllers: [UsersController, UsersPublicUsersController],
   providers: [UsersService, UserLdapSyncService],
   exports: [UserLdapSyncService, UsersService],
 })
