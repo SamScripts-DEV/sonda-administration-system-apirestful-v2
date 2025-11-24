@@ -548,8 +548,20 @@ export class UsersService {
 
     // Helper to build the update object
     private async buildUpdateData(user: Partial<CreateUserDto>, file?: Express.Multer.File) {
-        const data: any = { ...user };
-        if (user.passwordHash) data.passwordHash = await hashPassword(user.passwordHash);
+        const data: any = {};
+
+
+        Object.keys(user).forEach(key => {
+            const value = user[key];
+            if (value !== undefined && value !== null && value !== '') {
+                data[key] = value;
+            }
+        });
+
+        if (data.passwordHash) {
+            data.passwordHash = await hashPassword(data.passwordHash);
+        }
+
         if (file) data.imageUrl = await this.handleImage(file);
         return data;
     }
