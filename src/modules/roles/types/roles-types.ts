@@ -28,3 +28,10 @@ export interface AssignableUsersByArea {
     areaName: string;
     users: AssignableUser[];
 }
+
+export interface RoleLdapSyncPayload {
+    role_type: string,
+    old_role_name: string,
+    new_role_name: string,
+    area?: string
+}

@@ -1,16 +1,18 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateRoleDto } from './dto/create-rol.dto';
-import { AssignableUser, AssignableUsersByArea, RoleResponse, RoleResponseWithRelations } from './types/roles-types';
+import { AssignableUser, AssignableUsersByArea, RoleLdapSyncPayload, RoleResponse, RoleResponseWithRelations } from './types/roles-types';
 import { UserLdapSyncService } from '../users/user-ldap-sync.service';
 import { permission } from 'process';
+import { RoleLdapSyncService } from './role-ldap-sync.service';
 
 
 @Injectable()
 export class RolesService {
     constructor(
         private readonly prisma: PrismaService,
-        private readonly userLdapSyncService: UserLdapSyncService
+        private readonly userLdapSyncService: UserLdapSyncService,
+        private readonly roleLdapSyncService: RoleLdapSyncService
 
     ) { }
 
@@ -107,7 +109,7 @@ export class RolesService {
 
     //Function to add permission to a role
     async addPermissionToRole(roleId: string, permissionIds: string[]): Promise<{ message: string }> {
-        
+
         if (!roleId || !permissionIds || !Array.isArray(permissionIds) || permissionIds.length === 0) {
             throw new BadRequestException('Es necesario proporcionar el rol y el/los permisos a asignar');
         }
@@ -132,7 +134,7 @@ export class RolesService {
         }
 
         await this.prisma.rolePermission.createMany({
-            data: toInsert.map(permissionId => ({roleId, permissionId})),
+            data: toInsert.map(permissionId => ({ roleId, permissionId })),
             skipDuplicates: true
         })
         return { message: 'Permission added to role successfully' };
@@ -183,7 +185,9 @@ export class RolesService {
             throw new BadRequestException('areaIds are required for LOCAL roles');
         }
 
+        const currentRole = await this.prisma.role.findUnique({ where: { id } });
         const { areaIds, ...roleData } = updateRoleDto;
+
 
 
         const updatedRole = await this.prisma.$transaction(async (tx) => {
@@ -202,6 +206,9 @@ export class RolesService {
                 );
             }
 
+            if (updateRoleDto.name && updateRoleDto.name !== currentRole?.name) {
+                await this.syncRoleNameUpdateWithLdap(tx, role, currentRole!)
+            }
             return role;
         });
 
@@ -572,6 +579,53 @@ export class RolesService {
             throw new BadRequestException(`Error syncing role assignment with LDAP: ${ldapResponse.message}`);
         }
     }
+
+
+
+    private async syncRoleNameUpdateWithLdap(tx: any, updatedRole: any, currentRole: any): Promise<void> {
+        const areaName = await this.getAreaNameForLocalRole(tx, updatedRole);
+        const ldapPayload = this.buildLdapUpdatePayload(updatedRole, currentRole, areaName);
+
+        try {
+            const ldapResponse = await this.roleLdapSyncService.syncUpdateRoleInLdap(ldapPayload);
+            if (!ldapResponse.success) {
+                throw new BadRequestException(
+                    `LDAP: ${ldapResponse.data || ldapResponse.message || 'Unknown error'}`
+                );
+            }
+        } catch (error) {
+            const detail = error?.response?.data?.detail ||
+                error?.response?.data?.message ||
+                error.message;
+            throw new BadRequestException(detail);
+        }
+    }
+
+    private async getAreaNameForLocalRole(tx: any, role: any): Promise<string | undefined> {
+        if (role.scope !== 'LOCAL') return undefined;
+
+        const areaRole = await tx.areaRole.findFirst({
+            where: { roleId: role.id },
+            include: { area: true }
+        });
+        return areaRole?.area.name;
+    }
+
+    private buildLdapUpdatePayload(
+        updatedRole: any,
+        currentRole: any,
+        areaName?: string
+    ): RoleLdapSyncPayload {
+        const roleType = updatedRole.scope === 'GLOBAL' ? 'role_global' : 'role_local';
+        return {
+            role_type: roleType,
+            old_role_name: currentRole.name,
+            new_role_name: updatedRole.name,
+            area: areaName
+        };
+    }
+
+
 
 
 
