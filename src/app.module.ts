@@ -25,9 +25,10 @@ import { ShiftTypeRoleLocalModule } from './modules/shift-type-role-local/shift-
 import { AreaRoleModule } from './modules/area-role/area-role.module';
 import { TechnicalLevelModule } from './modules/technical-level/technical-level.module';
 import { UserTechnicalLevelModule } from './modules/user-technical-level/user-technical-level.module';
+import { OrganizationalGroupsModule } from './modules/organizational-groups/organizational-groups.module';
 
 @Module({
-  imports: [UsersModule, AreasModule, DepartmentsModule, PositionsModule, RolesModule, PermissionsModule, TokensModule, PrismaModule, HolidayModule, VacationsModule, AuthModule, SalaryModule, ShiftTypeModule, ShiftAssignmentModule, ShiftEventModule, ShiftTypeRoleLocalModule, AreaRoleModule, TechnicalLevelModule, UserTechnicalLevelModule],
+  imports: [UsersModule, AreasModule, DepartmentsModule, PositionsModule, RolesModule, PermissionsModule, TokensModule, PrismaModule, HolidayModule, VacationsModule, AuthModule, SalaryModule, ShiftTypeModule, ShiftAssignmentModule, ShiftEventModule, ShiftTypeRoleLocalModule, AreaRoleModule, TechnicalLevelModule, UserTechnicalLevelModule, OrganizationalGroupsModule],
   controllers: [AppController, ShiftScheduleController, ShiftHoursController],
   providers: [AppService, ShiftScheduleService, ShiftHoursService],
 })

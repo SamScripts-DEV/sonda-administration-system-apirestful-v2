@@ -113,6 +113,8 @@ export class UserLdapSyncService {
     }
 
 
+    
+
     async assignRolesToUsersInLdap(payload: LdapRoleAssignmentPayload): Promise<LdapResponse> {
         const url = `${this.ldapUrl}/assign-roles`;
         const encodedPayload = this.encodePayload(payload);

@@ -105,6 +105,7 @@ model User {
   originalShiftAssignments ShiftAssignment[] @relation("OriginalUser")
   shiftEvents ShiftEvent[]
   userTechnicalLevels UserTechnicalLevel[]
+  organizationalGroups  UserOrganizationalGroup[]
   @@map("users")
 }
 
@@ -138,6 +139,7 @@ model Area {
   areaRoles  AreaRole[] 
   userRoleLocals UserRoleLocal[]
   shiftAssignments ShiftAssignment[]
+  organizationalGroups  OrganizationalGroup[]
   @@map("area")
 }
 
@@ -343,4 +345,50 @@ model UserTechnicalLevel {
   technicalLevel   TechnicalLevel @relation(fields: [technicalLevelId], references: [id])
   @@unique([userId, technicalLevelId])
   @@map("user_technical_level")   
+}
+
+
+model OrganizationalGroup {
+  id             String   @id @default(uuid())
+  name           String   
+  description    String?
+  areaId         String?  
+  hierarchyLevel Int      @default(0) 
+  groupType      GroupType @default(CONTAINER) 
+  
+  parentId       String?  
+  parent         OrganizationalGroup? @relation("GroupHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children       OrganizationalGroup[] @relation("GroupHierarchy")
+
+  containerGroupId String?
+  containerGroup   OrganizationalGroup? @relation("GroupContainer", fields: [containerGroupId], references: [id], onDelete: SetNull)
+  containedGroups  OrganizationalGroup[] @relation("GroupContainer")
+
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @db.Timestamptz(6)
+  
+  
+  area           Area?    @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  members        UserOrganizationalGroup[]
+  
+  @@map("organizational_group")
+}
+
+enum GroupType {
+  CONTAINER    // Torre, División, Departamento, Equipo
+  LEADERSHIP   // Jefatura, Coordinación, Líder
+  OPERATIONAL  // Especialistas, Técnicos, Soporte
+}
+
+model UserOrganizationalGroup {
+  id        String   @id @default(uuid())
+  userId    String
+  groupId   String
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group     OrganizationalGroup   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, groupId])
+  @@map("user_organizational_group")
 }
