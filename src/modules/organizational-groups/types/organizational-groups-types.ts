@@ -110,3 +110,11 @@ export interface LdapResponse {
     message: string;
     data?: any;
 }
+
+export interface LdapOrgGroupUpdatePayload {
+    old_group_name: string;          
+    old_hierarchy_level: number;      
+    new_group_name: string;          
+    new_hierarchy_level: number;      
+    new_hierarchy_chain: HierarchyChainItem[];  
+}

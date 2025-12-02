@@ -9,7 +9,8 @@ import {
     AssignableUserResponse,
     HierarchyChainItem,
     LdapOrgGroupAssignmentPayload,
-    LdapOrgGroupRemovalPayload
+    LdapOrgGroupRemovalPayload,
+    LdapOrgGroupUpdatePayload
 } from './types/organizational-groups-types';
 import { OrgGroupLdapSyncService } from './organizational-groups-ldap-sync.service';
 
@@ -87,8 +88,18 @@ export class OrganizationalGroupsService {
     }
 
     async update(id: string, dto: Partial<CreateOrganizationalGroupDto>): Promise<OrganizationalGroupResponse> {
-        await this.findGroupById(id);
+        const currentGroup = await this.findGroupById(id);
+
         await this.validateUpdateInput(id, dto);
+
+
+        const nameChanged = dto.name && dto.name !== currentGroup.name;
+        const levelChanged = dto.hierarchyLevel !== undefined && dto.hierarchyLevel !== currentGroup.hierarchyLevel;
+        const parentChanged = dto.parentId !== undefined && dto.parentId !== currentGroup.parentId;
+        const areaChanged = dto.areaId !== undefined && dto.areaId !== currentGroup.areaId;
+
+        const affectsHierarchy = nameChanged || levelChanged || parentChanged || areaChanged;
+
 
         if (dto.parentId) {
             const parent = await this.prisma.organizationalGroup.findUnique({
@@ -101,13 +112,45 @@ export class OrganizationalGroupsService {
             }
         }
 
-        const group = await this.prisma.organizationalGroup.update({
+        const updatedGroup = await this.prisma.organizationalGroup.update({
             where: { id },
             data: dto,
             include: this.getGroupIncludes()
         });
 
-        return this.formatGroupResponse(group);
+        if (affectsHierarchy) {
+            const membersCount = await this.prisma.userOrganizationalGroup.count({
+                where: { groupId: id }
+            });
+
+            if (membersCount > 0) {
+                try {
+
+                    const newHierarchyChain = await this.buildHierarchyChain(id);
+
+
+                    const ldapPayload: LdapOrgGroupUpdatePayload = {
+                        old_group_name: currentGroup.name,
+                        old_hierarchy_level: currentGroup.hierarchyLevel,
+                        new_group_name: updatedGroup.name,
+                        new_hierarchy_level: updatedGroup.hierarchyLevel,
+                        new_hierarchy_chain: newHierarchyChain
+                    };
+
+
+                    await this.orgGroupLdapSyncService.updateOrgGroupInLdap(ldapPayload);
+
+                    console.log(`Synchronized ${membersCount} users with updated hierarchy in LDAP`);
+                } catch (error) {
+                    console.error('Error syncing hierarchy changes with LDAP:', error.message);
+
+                }
+            } else {
+                console.log('Group updated but has no members, LDAP sync skipped');
+            }
+        }
+
+        return this.formatGroupResponse(updatedGroup);
     }
 
     async remove(id: string): Promise<{ message: string }> {
@@ -282,7 +325,13 @@ export class OrganizationalGroupsService {
         const member = await this.prisma.userOrganizationalGroup.findUnique({
             where: { id: memberId },
             include: {
-                user: { select: { email: true } }
+                user: { select: { email: true } },
+                group: {
+                    select: {
+                        name: true,
+                        hierarchyLevel: true
+                    }
+                }
             }
         });
 
@@ -301,10 +350,15 @@ export class OrganizationalGroupsService {
             });
 
             try {
-                const ldapPayload = await this.prepareLdapRemovalPayload(groupId, [member.user.email]);
-                await this.orgGroupLdapSyncService.removeMembersFromOrgGroupInLdap(ldapPayload);
+                await this.orgGroupLdapSyncService.removeUserFromOrgGroupInLdap(
+                    member.user.email,
+                    member.group.name,
+                    member.group.hierarchyLevel
+                );
+
+                console.log(`User ${member.user.email} removed from group "${member.group.name}" in LDAP`);
             } catch (error) {
-                console.error('Error syncing removal with LDAP:', error.message);
+                console.error('⚠️ Error syncing removal with LDAP:', error.message);
                 throw new BadRequestException(`Error syncing member removal with LDAP: ${error.message}`);
             }
         });
@@ -580,6 +634,26 @@ export class OrganizationalGroupsService {
         if (dto.parentId === id) {
             throw new BadRequestException('A group cannot be its own parent');
         }
+
+        // PASO 1: Obtener grupo actual AL INICIO
+        const currentGroup = await this.prisma.organizationalGroup.findUnique({
+            where: { id },
+            include: {
+                children: true,
+                parent: {
+                    select: { areaId: true, hierarchyLevel: true}
+                },
+                containerGroup: {
+                    select: { areaId: true, hierarchyLevel: true, groupType: true }
+                }
+            }
+        });
+
+        if (!currentGroup) {
+            throw new NotFoundException('Group organizational not found');
+        }
+
+        // PASO 2: Validar contenedor si se proporciona
         if (dto.containerGroupId !== undefined) {
             if (dto.containerGroupId) {
                 const container = await this.prisma.organizationalGroup.findUnique({
@@ -596,7 +670,6 @@ export class OrganizationalGroupsService {
                     throw new NotFoundException('The specified container group does not exist');
                 }
 
-
                 if (container.groupType !== 'CONTAINER') {
                     throw new BadRequestException(
                         `Only CONTAINER groups can contain other groups. ` +
@@ -604,90 +677,67 @@ export class OrganizationalGroupsService {
                     );
                 }
 
+                const levelToValidate = dto.hierarchyLevel !== undefined ? dto.hierarchyLevel : currentGroup.hierarchyLevel;
 
-                const currentGroup = await this.prisma.organizationalGroup.findUnique({
-                    where: { id },
-                    select: { hierarchyLevel: true }
-                });
-
-                const levelToValidate = dto.hierarchyLevel !== undefined ? dto.hierarchyLevel : currentGroup?.hierarchyLevel;
-
-
-                if (levelToValidate && levelToValidate < container.hierarchyLevel) {
+                if (levelToValidate < container.hierarchyLevel) {
                     throw new BadRequestException(
                         `Contained groups cannot be at a lower hierarchy level than their container. ` +
                         `Container is at level ${container.hierarchyLevel}, current/new level is ${levelToValidate}.`
                     );
                 }
 
-
+                // Herencia automática de área del contenedor (si no se especificó explícitamente)
                 if (container.areaId && dto.areaId === undefined) {
                     dto.areaId = container.areaId;
                 }
             }
         }
 
-
+        // PASO 3: VALIDAR ÁREA - SOLO SI REALMENTE ESTÁ CAMBIANDO
         if (dto.areaId !== undefined) {
-
+            // Validar que el área existe
             if (dto.areaId) {
                 await this.validateAreaExists(dto.areaId);
             }
 
+            // ✅ NUEVA VALIDACIÓN: Solo validar hijos si el área REALMENTE CAMBIÓ
+            const areaChanged = dto.areaId !== currentGroup.areaId;
 
-            const currentGroup = await this.prisma.organizationalGroup.findUnique({
-                where: { id },
-                include: {
-                    children: true,
-                    parent: {
-                        select: { areaId: true }
-                    },
-                    containerGroup: {
-                        select: { areaId: true }
-                    }
-                }
-            });
-
-            if (!currentGroup) {
-                throw new NotFoundException('Group organizational not found');
-            }
-
-
-            if (currentGroup.children && currentGroup.children.length > 0) {
+            if (areaChanged && currentGroup.children && currentGroup.children.length > 0) {
                 throw new BadRequestException(
                     `Cannot change area of a group that has ${currentGroup.children.length} child group(s). ` +
                     `Please remove or reassign child groups first, or update children's areas in cascade.`
                 );
             }
 
+            // Validar coherencia con contenedor/padre SOLO SI CAMBIÓ
+            if (areaChanged) {
+                const containerToCheck = dto.containerGroupId !== undefined
+                    ? (dto.containerGroupId ? await this.prisma.organizationalGroup.findUnique({
+                        where: { id: dto.containerGroupId },
+                        select: { areaId: true }
+                    }) : null)
+                    : currentGroup.containerGroup;
 
-            const containerToCheck = dto.containerGroupId !== undefined
-                ? (dto.containerGroupId ? await this.prisma.organizationalGroup.findUnique({
-                    where: { id: dto.containerGroupId },
-                    select: { areaId: true }
-                }) : null)
-                : currentGroup.containerGroup;
-
-            if (containerToCheck?.areaId) {
-
-                if (dto.areaId !== containerToCheck.areaId) {
-                    throw new BadRequestException(
-                        `Cannot change area to a different one than container's area. ` +
-                        `Container area ID: ${containerToCheck.areaId}, you provided: ${dto.areaId}.`
-                    );
-                }
-            } else if (currentGroup.parent?.areaId) {
-
-                if (dto.areaId !== currentGroup.parent.areaId) {
-                    throw new BadRequestException(
-                        `Cannot change area to a different one than parent's area. ` +
-                        `Parent area ID: ${currentGroup.parent.areaId}, you provided: ${dto.areaId}.`
-                    );
+                if (containerToCheck?.areaId) {
+                    if (dto.areaId !== containerToCheck.areaId) {
+                        throw new BadRequestException(
+                            `Cannot change area to a different one than container's area. ` +
+                            `Container area ID: ${containerToCheck.areaId}, you provided: ${dto.areaId}.`
+                        );
+                    }
+                } else if (currentGroup.parent?.areaId) {
+                    if (dto.areaId !== currentGroup.parent.areaId) {
+                        throw new BadRequestException(
+                            `Cannot change area to a different one than parent's area. ` +
+                            `Parent area ID: ${currentGroup.parent.areaId}, you provided: ${dto.areaId}.`
+                        );
+                    }
                 }
             }
         }
 
-
+        // PASO 4: Validar padre si se proporciona
         if (dto.parentId !== undefined) {
             if (dto.parentId) {
                 const parent = await this.prisma.organizationalGroup.findUnique({
@@ -703,37 +753,25 @@ export class OrganizationalGroupsService {
                     throw new NotFoundException('The specified parent group does not exist');
                 }
 
+                const levelToValidate = dto.hierarchyLevel !== undefined ? dto.hierarchyLevel : currentGroup.hierarchyLevel;
 
-                const currentGroup = await this.prisma.organizationalGroup.findUnique({
-                    where: { id },
-                    select: {
-                        hierarchyLevel: true,
-                        areaId: true,
-                        containerGroupId: true
-                    }
-                });
-
-                const levelToValidate = dto.hierarchyLevel !== undefined ? dto.hierarchyLevel : currentGroup?.hierarchyLevel;
-
-                if (levelToValidate && levelToValidate < parent.hierarchyLevel) {
+                if (levelToValidate < parent.hierarchyLevel) {
                     throw new BadRequestException(
                         `Child cannot be at a lower hierarchy level than parent. ` +
                         `Parent is at level ${parent.hierarchyLevel}, current/new level is ${levelToValidate}.`
                     );
                 }
 
-
-                if (levelToValidate && levelToValidate > parent.hierarchyLevel + 3) {
+                if (levelToValidate > parent.hierarchyLevel + 3) {
                     throw new BadRequestException(
                         `Child level too high. Maximum allowed: ${parent.hierarchyLevel + 3}.`
                     );
                 }
 
-
-                const containerGroupId = dto.containerGroupId !== undefined ? dto.containerGroupId : currentGroup?.containerGroupId;
+                const containerGroupId = dto.containerGroupId !== undefined ? dto.containerGroupId : currentGroup.containerGroupId;
 
                 if (parent.areaId && !containerGroupId) {
-                    const areaToValidate = dto.areaId !== undefined ? dto.areaId : currentGroup?.areaId;
+                    const areaToValidate = dto.areaId !== undefined ? dto.areaId : currentGroup.areaId;
                     if (areaToValidate !== parent.areaId) {
                         throw new BadRequestException(
                             `Cannot change to a parent with different area (no container override). ` +
@@ -742,7 +780,6 @@ export class OrganizationalGroupsService {
                     }
                 }
             } else {
-
                 if (dto.hierarchyLevel !== undefined && dto.hierarchyLevel !== 0) {
                     throw new BadRequestException(
                         `Groups without parent must be level 0. You provided level ${dto.hierarchyLevel}.`
@@ -751,22 +788,9 @@ export class OrganizationalGroupsService {
             }
         }
 
-
+        // PASO 5: Validar nivel jerárquico si cambia (sin padre/contenedor)
         if (dto.hierarchyLevel !== undefined && dto.parentId === undefined && dto.containerGroupId === undefined) {
-            const currentGroup = await this.prisma.organizationalGroup.findUnique({
-                where: { id },
-                include: {
-                    parent: {
-                        select: { hierarchyLevel: true }
-                    },
-                    containerGroup: {
-                        select: { hierarchyLevel: true }
-                    }
-                }
-            });
-
-            if (currentGroup?.parent) {
-
+            if (currentGroup.parent) {
                 if (dto.hierarchyLevel < currentGroup.parent.hierarchyLevel) {
                     throw new BadRequestException(
                         `Cannot change hierarchy level below parent's level. ` +
@@ -780,7 +804,6 @@ export class OrganizationalGroupsService {
                     );
                 }
             } else {
-                // Sin padre: debe ser nivel 0
                 if (dto.hierarchyLevel !== 0) {
                     throw new BadRequestException(
                         `Cannot change hierarchy level. Groups without parent must remain at level 0.`
@@ -788,8 +811,7 @@ export class OrganizationalGroupsService {
                 }
             }
 
-
-            if (currentGroup?.containerGroup && dto.hierarchyLevel < currentGroup.containerGroup.hierarchyLevel) {
+            if (currentGroup.containerGroup && dto.hierarchyLevel < currentGroup.containerGroup.hierarchyLevel) {
                 throw new BadRequestException(
                     `Cannot change hierarchy level below container's level. ` +
                     `Container is at level ${currentGroup.containerGroup.hierarchyLevel}.`
@@ -797,25 +819,15 @@ export class OrganizationalGroupsService {
             }
         }
 
-
+        // PASO 6: Validar nombres duplicados
         if (dto.name) {
-            const currentGroup = await this.prisma.organizationalGroup.findUnique({
-                where: { id },
-                select: {
-                    hierarchyLevel: true,
-                    areaId: true,
-                    parentId: true,
-                    containerGroupId: true
-                }
-            });
-
             const duplicate = await this.prisma.organizationalGroup.findFirst({
                 where: {
                     id: { not: id },
                     name: dto.name,
-                    hierarchyLevel: dto.hierarchyLevel ?? currentGroup?.hierarchyLevel,
-                    areaId: dto.areaId !== undefined ? dto.areaId : currentGroup?.areaId,
-                    containerGroupId: dto.containerGroupId !== undefined ? dto.containerGroupId : currentGroup?.containerGroupId
+                    hierarchyLevel: dto.hierarchyLevel ?? currentGroup.hierarchyLevel,
+                    areaId: dto.areaId !== undefined ? dto.areaId : currentGroup.areaId,
+                    containerGroupId: dto.containerGroupId !== undefined ? dto.containerGroupId : currentGroup.containerGroupId
                 }
             });
 

@@ -6,6 +6,7 @@ import * as jwt from 'jsonwebtoken';
 import {
     LdapOrgGroupAssignmentPayload,
     LdapOrgGroupRemovalPayload,
+    LdapOrgGroupUpdatePayload,
     LdapResponse
 } from "./types/organizational-groups-types";
 
@@ -42,34 +43,32 @@ export class OrgGroupLdapSyncService {
     }
 
 
-    async updateMembersInOrgGroupInLdap(payload: LdapOrgGroupAssignmentPayload): Promise<LdapResponse> {
-        const url = `${this.ldapUrl}/organizational-groups/update-members`;
+    async updateOrgGroupInLdap(payload: LdapOrgGroupUpdatePayload): Promise<LdapResponse> {
+        const url = `${this.ldapUrl}/update-organizational-group`;
         const encodedPayload = this.encodePayload(payload);
 
         try {
             const response = await lastValueFrom(
-                this.httpService.put(url, { token: encodedPayload })
+                this.httpService.put(url, {token: encodedPayload})
             );
             return response.data;
-        } catch (error) {
-            console.error('Error updating members in org group in LDAP:', error.response?.data || error.message);
-            throw error;
+        } catch(error) {
+            console.error('Error updating org group in LDAP: ', error.response?.data || error.message);
+            throw error
         }
     }
 
-    async removeMembersFromOrgGroupInLdap(payload: LdapOrgGroupRemovalPayload): Promise<LdapResponse> {
-        const url = `${this.ldapUrl}/organizational-groups/remove-members`;
-        const encodedPayload = this.encodePayload(payload);
+    async removeUserFromOrgGroupInLdap(email: string, groupName: string, hierarchyLevel: number): Promise<LdapResponse> {
+        const url = `${this.ldapUrl}/remove-user-from-organizational-group/${encodeURIComponent(email)}`;
+        const queryParams = `?group_name=${encodeURIComponent(groupName)}&hierarchy_level=${hierarchyLevel}`;
 
         try {
             const response = await lastValueFrom(
-                this.httpService.delete(url, {
-                    data: { token: encodedPayload }
-                })
+                this.httpService.delete(`${url}${queryParams}`)
             );
             return response.data;
         } catch (error) {
-            console.error('Error removing members from org group in LDAP:', error.response?.data || error.message);
+            console.error('Error removing user from org group in LDAP:', error.response?.data || error.message);
             throw error;
         }
     }
