@@ -100,3 +100,8 @@ export interface LdapRoleAssignmentPayload {
     area?: string;
     users: string[];
 }
+
+export interface UserChangePasswordDto {
+    currentPassword: string;
+    newPassword: string;
+}

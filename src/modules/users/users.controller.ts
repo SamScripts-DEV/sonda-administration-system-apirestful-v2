@@ -7,6 +7,8 @@ import { PermissionsGuard } from 'src/common/guards/permissions.guard';
 import { Permissions } from 'src/common/decorators/permissions.decorator';
 import { userReadStrategies, userReadOneStrategies } from './strategies';
 import { ProfileGuard } from 'src/common/guards/profile.guard';
+import { UserChangePasswordDto } from './types/users-types';
+import { MultiJwtGuard } from 'src/common/guards/multi-jwt.guard';
 
 @UseGuards(JwtAuthGuard, ProfileGuard, PermissionsGuard)
 @Controller('users')
@@ -25,7 +27,7 @@ export class UsersController {
 
     @Get()
     @Permissions('user.read', 'user.area.read')
-    findAll(@Req() req) {     
+    findAll(@Req() req) {
         const user = req.user;
         const effective = user.effectivePermissions;
 
@@ -63,7 +65,7 @@ export class UsersController {
     // POST Methods (Used to create new user accounts)
     //--------------------------------------------------------------------------------------
     @Post()
-    @Permissions('user.create','user.area.create')
+    @Permissions('user.create', 'user.area.create')
     @UseInterceptors(FileInterceptor('image', {
         limits: {
             fileSize: 5 * 1024 * 1024, // 5 MB
@@ -81,7 +83,7 @@ export class UsersController {
 
 
     @Post(':userId/assign-roles')
-    @Permissions('user.create','user.update', 'user.area.update', 'user.roleglobal.assign', 'user.rolelocal.assign')
+    @Permissions('user.create', 'user.update', 'user.area.update', 'user.roleglobal.assign', 'user.rolelocal.assign')
     async assignRolesToUser(
         @Param('userId', new ParseUUIDPipe()) userId: string,
         @Body('globalRoleIds') globalRoleIds: string[],
@@ -97,7 +99,7 @@ export class UsersController {
 
     // This endpoint allows updating user information, including the image if provided.
     @Patch(':id')
-    @Permissions('user.create','user.update', 'user.area.update')
+    @Permissions('user.create', 'user.update', 'user.area.update')
     @UseInterceptors(FileInterceptor('image', {
         limits: {
             fileSize: 5 * 1024 * 1024, // 5 MB
@@ -119,7 +121,7 @@ export class UsersController {
 
     //This endpoint allows updating only the image of a user.
     @Patch(':id/uploaded-image')
-    @Permissions('user.create','user.update', 'user.area.update')
+    @Permissions('user.create', 'user.update', 'user.area.update')
     @UseInterceptors(FileInterceptor('image', {
         limits: {
             fileSize: 5 * 1024 * 1024, // 5 MB
@@ -139,7 +141,7 @@ export class UsersController {
     }
 
     @Put(':userId/update-roles')
-    @Permissions('user.create','user.update', 'user.area.update', 'user.roleglobal.assign', 'user.rolelocal.assign', 'user.roleglobal.read')
+    @Permissions('user.create', 'user.update', 'user.area.update', 'user.roleglobal.assign', 'user.rolelocal.assign', 'user.roleglobal.read')
     async updateUserRoles(
         @Param('userId', new ParseUUIDPipe()) userId: string,
         @Body('globalRoleIds') globalRoleIds: string[],
@@ -154,6 +156,16 @@ export class UsersController {
         return await this.usersService.activate(id);
     }
 
+
+    @Put('change-password')
+    @UseGuards(MultiJwtGuard)
+    async changePasswordByEmail(
+        @Body('email') email: string,
+        @Body() data: UserChangePasswordDto
+    ) {
+        return this.usersService.changePasswordByEmail(email, data);
+    }
+
     //--------------------------------------------------------------------------------------
     // DELETE Methods (Used to delete or deactivate users)
     //--------------------------------------------------------------------------------------
@@ -166,7 +178,7 @@ export class UsersController {
     // Quitar un rol de un usuario
 
     @Delete(':userId/roles/:roleId')
-    @Permissions('user.create','user.update', 'user.area.update', 'user.roleglobal.assign', 'user.rolelocal.assign')
+    @Permissions('user.create', 'user.update', 'user.area.update', 'user.roleglobal.assign', 'user.rolelocal.assign')
     removeRole(@Param('userId', new ParseUUIDPipe()) userId: string, @Param('roleId', new ParseUUIDPipe()) roleId: string) {
         return this.usersService.removeRoleFromUser(userId, roleId);
     }

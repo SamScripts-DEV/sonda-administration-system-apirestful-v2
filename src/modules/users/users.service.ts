@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
-import { FindAllForSelectType, UserWithRelationsDto } from './types/users-types';
-import { hashPassword } from 'src/utils/password.util';
+import { FindAllForSelectType, UserChangePasswordDto, UserWithRelationsDto } from './types/users-types';
+import { hashPassword, verifyPassword } from 'src/utils/password.util';
 import { uploadImage } from 'src/utils/cloudinary.util';
 import { UserLdapSyncService } from './user-ldap-sync.service';
 import { User } from '@prisma/client';
@@ -404,12 +404,63 @@ export class UsersService {
         return { message: 'User roles updated successfully' };
     }
 
-    //Function to update only user password
+    //Function to update only user password ----- legacy
     async insertNewPasswordInDB(id: string, hashedPassword: string): Promise<void> {
         await this.prisma.user.update({
             where: { id },
             data: { passwordHash: hashedPassword }
         });
+    }
+
+
+    //function to change password of the user authenticated
+    async changePasswordByEmail(email: string, data: UserChangePasswordDto): Promise<{ message: string }> {
+        const user = await this.prisma.user.findUnique({
+            where: { email }, include: {
+                department: true,
+                areas: { include: { area: true } },
+                position: true,
+                roles: { select: { role: { select: { name: true } } } },
+                roles_local: {
+                    include: {
+                        area: { select: { name: true } },
+                        role: { select: { name: true } }
+                    }
+                }
+            }
+        });
+
+        if (!user) throw new NotFoundException('User not found');
+        const isCurrentPasswordValid = await verifyPassword(user.passwordHash, data.currentPassword);
+        if (!isCurrentPasswordValid) throw new BadRequestException('Current password is incorrect');
+
+        const plainNewPassword = data.newPassword;
+        const hashedNewPassword = await hashPassword(data.newPassword);
+
+        await this.prisma.$transaction(async (tx) => {
+            await tx.user.update({
+                where: { email },
+                data: { passwordHash: hashedNewPassword }
+            });
+
+            const userFormatted = this.formatUserWithRelations(user);
+
+            const ldapPayload = this.userLdapSyncService.buildLdapUpdatePayload(
+                userFormatted,
+                plainNewPassword
+            );
+
+            try {
+                const ldapResponse = await this.userLdapSyncService.updateUserInLdap(email, ldapPayload);
+                if (!ldapResponse.success) {
+                    throw new BadRequestException(`Error syncing user update to LDAP: ${ldapResponse.message}`);
+                }
+            } catch (error) {
+                throw new BadRequestException(`Error syncing user update to LDAP: ${error.message}`);
+            }
+        });
+
+        return { message: 'Password changed successfully' };
     }
 
     //--------------------------------------------------------------------------------------
