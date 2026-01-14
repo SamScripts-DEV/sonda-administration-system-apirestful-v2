@@ -53,6 +53,6 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpErrorFilter());
   app.use(cookieParser());
   app.setGlobalPrefix('api/v2'); 
-  await app.listen(process.env.PORT ?? 3000);
+  await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
 }
 bootstrap();
