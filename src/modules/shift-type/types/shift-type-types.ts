@@ -24,3 +24,19 @@ export interface ShiftTypeResponse {
     schedules?: ShiftScheduleResponse[];
     roleLocals?: ShiftTypeRoleLocalResponse[];
 }
+
+
+export interface ShiftScheduleInfo {
+    id: string;
+    startTime: string;
+    endTime: string;
+    durationHours: number;
+}
+
+
+export interface ShiftInfo {
+    id: string;
+    name: string;
+    description?: string | null
+    schedules: ShiftScheduleInfo[]
+}

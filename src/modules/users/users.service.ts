@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
-import { FindAllForSelectType, UserChangePasswordDto, UserWithRelationsDto } from './types/users-types';
+import { FindAllForSelectType, UserChangePasswordDto, UserInfo, UserWithRelationsDto } from './types/users-types';
 import { hashPassword, verifyPassword } from 'src/utils/password.util';
 import { uploadImage } from 'src/utils/cloudinary.util';
 import { UserLdapSyncService } from './user-ldap-sync.service';
@@ -245,6 +245,51 @@ export class UsersService {
             globalRoles: assignableGlobalRoles.map(r => ({ id: r.id, name: r.name })),
             localRoles: Object.values(localRolesByArea)
         };
+
+    }
+
+
+    //Function to get user info to be used in shift-assignments microservice (vacations)
+    async findUserInfoForShiftAssigments(ids: string[]): Promise<UserInfo[]> {
+        if (!ids || ids.length === 0) return [];
+
+
+        const users = await this.prisma.user.findMany({
+            where: {id: {in: ids}},
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                vacationRequests: {
+                    where: {status: 'APPROVED'},
+                    select: {
+                        id: true,
+                        startDate: true,
+                        endDate: true,
+                        daysRequested: true,
+                        status: true,
+                        observation: true
+                    }
+                }
+            }
+        });
+
+
+        return users.map(user => ({
+            id: user.id,
+            fullName: `${user.firstName} ${user.lastName}`,
+            email: user.email,
+            vacations:user.vacationRequests.map(vac => ({
+                id: vac.id,
+                startDate: vac.startDate.toISOString(),
+                endDate: vac.endDate.toISOString(),
+                daysRequested: vac.daysRequested,
+                status: vac.status,
+                observation: vac.observation ?? null
+            }))
+
+        }))
 
     }
 

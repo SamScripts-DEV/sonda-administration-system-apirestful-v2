@@ -105,3 +105,17 @@ export interface UserChangePasswordDto {
     currentPassword: string;
     newPassword: string;
 }
+
+export type UserInfo = {
+    id: string;
+    fullName: string;
+    email: string;
+    vacations: {
+        id: string;
+        startDate: string;
+        endDate: string;
+        daysRequested: number;
+        status: string
+        observation?: string | null;
+    }[]
+}
