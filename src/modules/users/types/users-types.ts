@@ -110,6 +110,7 @@ export type UserInfo = {
     id: string;
     fullName: string;
     email: string;
+    areaIds: string[];
     vacations: {
         id: string;
         startDate: string;

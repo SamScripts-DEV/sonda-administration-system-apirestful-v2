@@ -261,6 +261,16 @@ export class UsersService {
                 firstName: true,
                 lastName: true,
                 email: true,
+                areas: {
+                    select: {
+                        area: {
+                            select: {
+                                id: true,
+                                name: true
+                            }
+                        }
+                    }
+                },
                 vacationRequests: {
                     where: {status: 'APPROVED'},
                     select: {
@@ -280,6 +290,7 @@ export class UsersService {
             id: user.id,
             fullName: `${user.firstName} ${user.lastName}`,
             email: user.email,
+            areaIds: user.areas.map(a => a.area.id),
             vacations:user.vacationRequests.map(vac => ({
                 id: vac.id,
                 startDate: vac.startDate.toISOString(),
