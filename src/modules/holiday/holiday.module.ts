@@ -9,6 +9,7 @@ import { ConfigModule } from '@nestjs/config';
 @Module({
   imports: [PrismaModule,HttpModule, ConfigModule],
   controllers: [HolidayController],
-  providers: [HolidayService, ExternalHolidayService]
+  providers: [HolidayService, ExternalHolidayService],
+  exports: [HolidayService]
 })
 export class HolidayModule {}

@@ -206,4 +206,18 @@ export class HolidayService {
         return { imported: dtos.length, message: `Imported ${dtos.length} holidays for year ${year}.` };
     }
 
+
+    //Other functions
+    //Verify if a given date is holiday
+    async isHoliday(date: Date | string): Promise<boolean> {
+        const dateObj = typeof date == 'string' ? new Date(date) : date;
+
+        const holiday = await this.prisma.holiday.findFirst({
+            where: {
+                startDate: { lte: dateObj },
+                endDate: { gte: dateObj }
+            }
+        })
+        return !!holiday
+    }
 }
