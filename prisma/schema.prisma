@@ -106,6 +106,7 @@ model User {
   shiftEvents ShiftEvent[]
   userTechnicalLevels UserTechnicalLevel[]
   organizationalGroups  UserOrganizationalGroup[]
+  shiftRosterUsers   ShiftRosterUser[]
   @@map("users")
 }
 
@@ -140,6 +141,7 @@ model Area {
   userRoleLocals UserRoleLocal[]
   shiftAssignments ShiftAssignment[]
   organizationalGroups  OrganizationalGroup[]
+  shiftRosters  ShiftRoster[]
   @@map("area")
 }
 
@@ -256,6 +258,7 @@ model ShiftType {
   schedules   ShiftSchedule[]
   assignments ShiftAssignment[]
   roleLocals  ShiftTypeRoleLocal[]
+  shiftRosterShiftTypes  ShiftRosterShiftType[]
   @@map("shift_type")
 }
 
@@ -294,6 +297,9 @@ model ShiftAssignment {
   isStandby         Boolean  @default(false)
   areaId            String
 
+  shiftRosterId     String?
+  shiftRoster       ShiftRoster? @relation(fields: [shiftRosterId], references:[id])
+
   user              User     @relation("UserShiftAssignments", fields: [userId], references: [id])
   originalUser      User?    @relation("OriginalUser", fields: [originalUserId], references: [id])
   shiftType         ShiftType @relation(fields: [shiftTypeId], references: [id])
@@ -326,6 +332,47 @@ model ShiftEvent {
   user            User     @relation(fields: [userId], references: [id])
   @@map("shift_event")
 }
+
+
+model ShiftRoster {
+  id                   String   @id @default(uuid())
+  areaId               String
+  name                 String
+  description          String?
+  startDate            DateTime
+  endDate              DateTime?
+  createdAt            DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime @default(now()) @db.Timestamptz(6)
+
+  area                 Area     @relation(fields: [areaId], references: [id])
+  users                ShiftRosterUser[] // Usuarios asignados al roster
+  shiftTypes           ShiftRosterShiftType[] // Tipos de turno asociados al roster
+  shiftAssignments     ShiftAssignment[] // Asignaciones de turnos generadas por este roster
+
+  @@map("shift_roster")
+}
+
+
+model ShiftRosterUser {
+  id           String   @id @default(uuid())
+  shiftRosterId String
+  userId       String
+  shiftRoster  ShiftRoster @relation(fields: [shiftRosterId], references: [id])
+  user         User        @relation(fields: [userId], references: [id])
+
+  @@map("shift_roster_user")
+}
+
+model ShiftRosterShiftType {
+  id           String   @id @default(uuid())
+  shiftRosterId String
+  shiftTypeId  String
+  shiftRoster  ShiftRoster @relation(fields: [shiftRosterId], references: [id])
+  shiftType    ShiftType   @relation(fields: [shiftTypeId], references: [id])
+
+  @@map("shift_roster_shift_type")
+}
+
 
 
 model TechnicalLevel {
